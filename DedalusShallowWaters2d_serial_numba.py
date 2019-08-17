@@ -67,12 +67,13 @@ def ConvHeating(*args):
     tauc                 = args[7].value
     R                    = args[8].value
     hc                   = args[9].value
-    Q = np.zeros_like(h)
+    Q                    = np.zeros_like(h)
     R2                   = R*R
-    ind_dist_x             = int(np.ceil( R / (x[1,0] - x[0,0]) ) )
-    ind_dist_y             = int(np.ceil( R / (y[0,1] - y[0,0]) ) )
+    ind_dist_x           = int(np.ceil( R / (x[1,0] - x[0,0]) ) )
+    ind_dist_y           = int(np.ceil( R / (y[0,1] - y[0,0]) ) )
     #print(np.shape(x))
-    #print()
+    #print(np.shape(y))
+    #print(np.shape(h))
     """
     for each active center:
     for each point closer than R:
@@ -209,7 +210,9 @@ v['g'] = 0.0
 #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
 #h['g'] = H - amp*np.exp(-4*np.log(2)*( (x-0.5*Lx)**2 + (y-0.5*Ly)**2)/(0.1*Lx)**2)
 #print(np.shape(h['g'].data))
-h['g'] = H + amp*np.random.rand(nx,ny)
+nxlocal = h['g'].shape[0]
+nylocal = h['g'].shape[1]
+h['g'] = H + amp*np.random.rand(nxlocal,nylocal)
 
 u.differentiate('x',out=ux)
 v.differentiate('y',out=vy)

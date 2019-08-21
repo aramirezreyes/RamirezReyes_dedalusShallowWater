@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 from numba import jit
+from numba import vectorize
 import numpy as np
 import itertools
 import h5py
@@ -14,11 +15,17 @@ for h in root.handlers:
     h.setLevel("INFO")
 logger = logging.getLogger(__name__)
 
+#import matplotlib.pyplot as plt
+#%matplotlib inline
+
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
 
 #Domain specs
 Lx                   = (1.5e6)
 nx                   = (150)
-Ly                   = (1.0e6)
+Ly                   = (1.5e6)
 ny                   = (150)
 # Create bases and domain
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
@@ -26,18 +33,20 @@ y_basis              = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
 domain               = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
 conv_centers         = domain.new_field(name = 'conv_centers')
 conv_centers_times   = domain.new_field(name = 'conv_centers_times')
+#conv_centers.set_scales(1.5,keep_data=True)
+#conv_centers_times.set_scales(1.5,keep_data=True)
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 1.0e4
-hyperdiff_power      = 1
+diff_coef            = 1.0e5
+hyperdiff_power      = 1.0
 ## Physics
 gravity              = 10.0
 #gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
 heating_amplitude    = 1.0e9
-radiative_cooling    = (1.12/3.0)*1e-8
-
+radiative_cooling    = (1.12/3.0)*1.0e-8
+#radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
 convective_radius    = 20000.0
 critical_geopotential = 40.0
@@ -55,7 +64,6 @@ dt_max               = (2*np.pi/om) #/19
 CFLfac               = 0.4
 start_dt             = dt_max
 #**********Convective heating term*****************#
-
 def ConvHeating(*args):
     t                    = args[0].value # this is a scalar; we use .value to get its value
     x                    = args[1].data # this is an array; we use .data to get its values
@@ -69,11 +77,7 @@ def ConvHeating(*args):
     hc                   = args[9].value
     Q                    = np.zeros_like(h)
     R2                   = R*R
-    ind_dist_x           = int(np.ceil( R / (x[1,0] - x[0,0]) ) )
-    ind_dist_y           = int(np.ceil( R / (y[0,1] - y[0,0]) ) )
-    #print(np.shape(x))
-    #print(np.shape(y))
-    #print(np.shape(h))
+    #print("Sizes of x, y, conv_centers and h: ",np.shape(x),np.shape(y),np.shape(conv_centers),np.shape(h))
     """
     for each active center:
     for each point closer than R:
@@ -83,18 +87,46 @@ def ConvHeating(*args):
     active center time = 0
     
     """
-    #print(np.shape(h))
-    #print("Computed heating.")
     computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times)
-    heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2,ind_dist_x,ind_dist_y)
-    
 
+
+    #### MPI version #######
+    indices_out         = np.nonzero( (conv_centers!=0.0) & ((t - conv_centers_times)<tauc))
+    centers_local_x     = x[indices_out]
+    centers_local_y     = y[indices_out]
+    centers_local_times = conv_centers_times[indices_out]
+    comm.barrier()
+    centers_shape       = comm.allgather(centers_local_x.shape[0])
+    numberofcenters     = np.sum(centers_shape)
+    if numberofcenters > 0:
+        centers_gathered_x     = np.hstack(comm.allgather(centers_local_x))
+        centers_gathered_y     = np.hstack(comm.allgather(centers_local_y))
+        centers_gathered_times = np.hstack(comm.allgather(centers_local_times))
+        heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2)
+    ##### Serial version #######
+    #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q
 
+
 @jit(nopython=True)
-def heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2,ind_dist_x,ind_dist_y):
+def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2):    
+    for ind in range(centers_gathered_x.shape[0]):
+        xx              = centers_gathered_x[ind]
+        yy              = centers_gathered_y[ind]
+        time_convecting = centers_gathered_times[ind]
+        distsq          = (x-xx)**2 + (y-yy)**2
+        indices_in      = np.nonzero(distsq < R2)
+        if indices_in[0].shape[0] > 0:
+            for ind_in in range(indices_in[0].shape[0]):
+                idxx_in            = indices_in[0][ind_in]
+                idxy_in            = indices_in[1][ind_in]
+                Q[idxx_in,idxy_in] = Q[idxx_in,idxy_in] + heatingfunction(t,distsq[idxx_in,idxy_in],time_convecting,q0,tauc,R2)    
+    return None
+
+
+@jit(nopython=True)
+def heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2):
     indices_out = np.nonzero( (conv_centers!=0.0) & ((t - conv_centers_times)<tauc))
-    #print(indices_out)
     for ind in range(indices_out[1].shape[0]):
         idxx = indices_out[0][ind]
         idxy = indices_out[1][ind]        
@@ -103,38 +135,30 @@ def heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2,ind_dist_x,ind_dist_
         for ind_in in range(indices_in[1].shape[0]):
             idxx_in = indices_in[0][ind_in]
             idxy_in = indices_in[1][ind_in]
-            #print("Shape dist: ",np.shape(distsq[mask])," Shape maks: ",np.shape(mask),"Shape Q",np.shape(hetin))
             Q[idxx_in,idxy_in] = Q[idxx_in,idxy_in] +  heatingfunction(t,distsq[idxx_in,idxy_in],conv_centers_times[idxx,idxy],q0,tauc,R2)    
     return None
 
 
-@jit(nopython=True)
+@jit(nopython=True,parallel=True)
 def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
-    ind1                       = np.nonzero(h<hc)
-    ind2                       = np.nonzero( (h<hc) & (conv_centers_times==0.0))
-    ind3                       = np.nonzero(h > hc)
-    ind4                       = np.nonzero(conv_centers_times > tauc)
+    ind1                       = np.nonzero((t - conv_centers_times)  >= tauc)
     for ind in range(ind1[1].shape[0]):
-        conv_centers[ ind1[0][ind], ind1[1][ind]] = 1.0
-                     
+        conv_centers[ind1[0][ind],ind1[1][ind]] = 0.0
+        conv_centers_times[ind1[0][ind],ind1[1][ind]] = 0.0
+        
+    ind2                       = np.nonzero(h >= hc)
     for ind in range(ind2[1].shape[0]):
-        conv_centers_times[ind2[0][ind],ind2[1][ind]] = t
-                     
-    for ind in range(ind3[1].shape[0]):
-        conv_centers[ind3[0][ind],ind3[1][ind]] = 0.0
-        conv_centers_times[ind3[0][ind],ind3[1][ind]] = 0.0             
-                           
-    for ind in range(ind4[1].shape[0]):
-        conv_centers_times[ind4[0][ind],ind4[1][ind]] = 0.0
-                     
+        conv_centers[ind2[0][ind],ind2[1][ind]] = 0.0
+        conv_centers_times[ind2[0][ind],ind2[1][ind]] = 0.0
+        
+    ind3                       = np.nonzero(h<hc)
+    ind4                       = np.nonzero((h<hc) & (conv_centers_times < 1.0))
     
-#    conv_centers[ ind1  ]      = 1.0
-#    conv_centers_times[ ind2 ] = t
-#    conv_centers[ind3]         = 0.0
-#    conv_centers_times[ind3]   = 0.0
-#    conv_centers_times[ind4]   = 0.0            
-    #print(np.column_stack((x[idx],y[idx])))
+    for ind in range(ind3[1].shape[0]):
+        conv_centers[ ind3[0][ind], ind3[1][ind]] = 1.0
+    for ind in range(ind4[1].shape[0]):
+        conv_centers_times[ind4[0][ind],ind4[1][ind]] = t
     return None
 
 @jit(nopython=True)
@@ -144,26 +168,22 @@ def heatingfunction(t,distsq,conv_center_time,q0,tauc,R2):
     deltat   = t - conv_center_time
     quotient = 2.0 * (deltat - tauc/2.0)/(tauc)
     q        = q0*(1.0 - quotient*quotient)*(1.0 - (distsq / R2))
-    #print("Shape deltat: ",np.shape(conv_center_time)," Shape quotient: ",np.shape(quotient),"Shape q",np.shape(q))
-    #print(np.shape(q))
-    #return 1.0
+
     return  q / (tauc*A0)
+
+
 
 def DiabaticTerm(*args, domain=domain, F=ConvHeating):
     return de.operators.GeneralFunction(domain,layout='g',func=F,args=args)
-
-
-
-#######List of centers and times
-
-
-
 #***** Problem setup ************#
 de.operators.parseables['Q']        = DiabaticTerm
+
 problem                             = de.IVP(domain, variables=['u','v','h','ux','hx','vy','hy','uy','vx'])
-problem.meta['u']['x']['dirichlet'] = True
+#problem.meta['u']['x']['dirichlet'] = True
 problem.parameters['conv_centers']  = conv_centers
 problem.parameters['conv_centers_times'] = conv_centers_times
+
+
 problem.parameters['g']             = gravity
 problem.parameters['nu']            = diff_coef
 problem.parameters['hs']            = hyperdiff_power
@@ -175,14 +195,13 @@ problem.parameters['hc']            = critical_geopotential
 problem.parameters['r']             = radiative_cooling
 problem.add_equation("dt(u) + g*dx(h) - f*v  - (-1)**(hs+1)*nu*dx(dx(u)) - (-1)**(hs+1)*nu*dy(dy(u)) = - u*ux - v*uy ") #check it need changing for dx(h)
 problem.add_equation("dt(v) + g*dy(h) + f*u  - (-1)**(hs+1)*nu*dx(dx(v)) - (-1)**(hs+1)*nu*dy(dy(v)) = - v*vy - u*vx ") #check it need changing for dx(h)
-problem.add_equation("dt(h) - (-1)**(hs+1)*nu*dx(dx(h)) - (-1)**(hs+1)*nu*dy(dy(h)) = - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,conv_centers,conv_centers_times,q0,tauc,R,hc) - r ")
+problem.add_equation("dt(h)  - (-1)**(hs+1)*nu*dx(dx(h)) - (-1)**(hs+1)*nu*dy(dy(h)) = - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,conv_centers,conv_centers_times,q0,tauc,R,hc) - r ")
 problem.add_equation("ux - dx(u) = 0")
 problem.add_equation("hx - dx(h) = 0")
 problem.add_equation("vy - dy(v) = 0")
 problem.add_equation("hy - dy(h) = 0")
 problem.add_equation("vx - dx(v) = 0")
 problem.add_equation("uy - dy(u) = 0")
-
 
 ts = de.timesteppers.RK443
 
@@ -204,15 +223,16 @@ hx = solver.state['hx']
 hy = solver.state['hy']
 
 
-amp    = 0.1
+amp    = 4.0
 u['g'] = 0.0
 v['g'] = 0.0
 #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
-#h['g'] = H - amp*np.exp(-4*np.log(2)*( (x-0.5*Lx)**2 + (y-0.5*Ly)**2)/(0.1*Lx)**2)
+#h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
 #print(np.shape(h['g'].data))
 nxlocal = h['g'].shape[0]
 nylocal = h['g'].shape[1]
-h['g'] = H + amp*np.random.rand(nxlocal,nylocal)
+h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
+#h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
 
 u.differentiate('x',out=ux)
 v.differentiate('y',out=vy)
@@ -223,7 +243,7 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 8640000 #30000
+solver.stop_sim_time = 180000
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = 100
@@ -237,7 +257,7 @@ cfl.add_velocities(('u','v'))
 
 
 analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=3600, max_writes=300)
-#analysis = solver.evaluator.add_file_handler('analysis_convgravicor', iter=10, max_writes=300)
+#analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', iter=1, max_writes=300)
 analysis.add_task('h',layout='g')
 analysis.add_task('u',layout='g')
 analysis.add_task('v',layout='g')

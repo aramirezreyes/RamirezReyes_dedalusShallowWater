@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 from numba import jit
-from numba import vectorize
+from numba import vectorize, float64
 import numpy as np
 import itertools
 import h5py
@@ -31,36 +31,38 @@ ny                   = (150)
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
 y_basis              = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
 domain               = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
-conv_centers         = domain.new_field(name = 'conv_centers')
-conv_centers_times   = domain.new_field(name = 'conv_centers_times')
-#conv_centers.set_scales(1.5,keep_data=True)
-#conv_centers_times.set_scales(1.5,keep_data=True)
+#Pretty sure that what you want to do is get the local shape of the grid on each process at the beginning of the run:
+local_shape = domain.dist.grid_layout.local_shape(scales=1.5)
+#Then create NumPy arrays on each processor locally that do what you're interested in :
+conv_centers = np.zeros(local_shape, dtype=bool)
+conv_centers_times = np.zeros(local_shape, dtype=np.float64)
+
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 1.0e5
+diff_coef            = 1.0e4
 hyperdiff_power      = 1.0
 ## Physics
 gravity              = 10.0
 #gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
-heating_amplitude    = 1.0e9
+heating_amplitude    = 1.0e9 #originally 9 for heating, -8 for cooling
 radiative_cooling    = (1.12/3.0)*1.0e-8
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
 convective_radius    = 20000.0
 critical_geopotential = 40.0
-#k                    = 2*np.pi/1000
-k                    = 2.0*np.pi/10.0
+k                    = 2*np.pi/500 #1000 is wavelength = 1km
+#k                    = 2.0*np.pi/10.0
 H                    = 40.0#/(gravity*k**2)
-om                   = np.sqrt(gravity*H*k**2)
-#Initialize fields
-conv_centers['g']         = 0.0
-conv_centers_times['g']   = 0.0
+omega                   = np.sqrt(gravity*H*k**2) #wavelength to be resolved
+# #Initialize fields
+# #conv_centers['g']         = 0.0
+# #conv_centers_times['g']   = 0.0
 
 
-# *****USER-CFL***** #
-dt_max               = (2*np.pi/om) #/19
+# # *****USER-CFL***** #
+dt_max               = (2*np.pi/omega) #/19
 CFLfac               = 0.4
 start_dt             = dt_max
 #**********Convective heating term*****************#
@@ -69,12 +71,10 @@ def ConvHeating(*args):
     x                    = args[1].data # this is an array; we use .data to get its values
     y                    = args[2].data
     h                    = args[3].data
-    conv_centers         = args[4].data
-    conv_centers_times   = args[5].data
-    q0                   = args[6].value
-    tauc                 = args[7].value
-    R                    = args[8].value
-    hc                   = args[9].value
+    q0                   = args[4].value
+    tauc                 = args[5].value
+    R                    = args[6].value
+    hc                   = args[7].value
     Q                    = np.zeros_like(h)
     R2                   = R*R
     #print("Sizes of x, y, conv_centers and h: ",np.shape(x),np.shape(y),np.shape(conv_centers),np.shape(h))
@@ -87,9 +87,9 @@ def ConvHeating(*args):
     active center time = 0
     
     """
-    computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times)
-
-
+#    print("Conv_centers",conv_centers.shape)
+#    print("Grid:",x.shape)
+    computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times)
     #### MPI version #######
     indices_out         = np.nonzero( (conv_centers!=0.0) & ((t - conv_centers_times)<tauc))
     centers_local_x     = x[indices_out]
@@ -98,17 +98,18 @@ def ConvHeating(*args):
     comm.barrier()
     centers_shape       = comm.allgather(centers_local_x.shape[0])
     numberofcenters     = np.sum(centers_shape)
+    #print(numberofcenters)
     if numberofcenters > 0:
         centers_gathered_x     = np.hstack(comm.allgather(centers_local_x))
         centers_gathered_y     = np.hstack(comm.allgather(centers_local_y))
         centers_gathered_times = np.hstack(comm.allgather(centers_local_times))
-        heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2)
+        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R)
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q
 
 
-@jit(nopython=True)
+@jit(nopython=True,parallel=True)
 def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2):    
     for ind in range(centers_gathered_x.shape[0]):
         xx              = centers_gathered_x[ind]
@@ -122,6 +123,25 @@ def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_time
                 idxy_in            = indices_in[1][ind_in]
                 Q[idxx_in,idxy_in] = Q[idxx_in,idxy_in] + heatingfunction(t,distsq[idxx_in,idxy_in],time_convecting,q0,tauc,R2)    
     return None
+
+
+@jit(nopython=True)
+def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R):    
+#    for index_out,val_out in range(centers_gathered_x.shape[0]):
+    for index_out,val_out in np.ndenumerate(centers_gathered_x):
+        xx              = val_out
+        yy              = centers_gathered_y[index_out]
+        time_convecting = centers_gathered_times[index_out]
+        if xx > (xmax_local + R) or xx < (xmin_local - R) or yy < (ymin_local - R) or yy > (ymax_local + R ):
+            continue
+        else:
+            for index_in,val_in in np.ndenumerate(x):
+                distsq = (val_in-xx)**2+(y[index_in]-yy)**2
+                if distsq < R2:
+                    Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
+    return None
+
+
 
 
 @jit(nopython=True)
@@ -144,23 +164,38 @@ def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
     ind1                       = np.nonzero((t - conv_centers_times)  >= tauc)
     for ind in range(ind1[1].shape[0]):
-        conv_centers[ind1[0][ind],ind1[1][ind]] = 0.0
+        conv_centers[ind1[0][ind],ind1[1][ind]] = False
         conv_centers_times[ind1[0][ind],ind1[1][ind]] = 0.0
         
     ind2                       = np.nonzero(h >= hc)
     for ind in range(ind2[1].shape[0]):
-        conv_centers[ind2[0][ind],ind2[1][ind]] = 0.0
+        conv_centers[ind2[0][ind],ind2[1][ind]] = False
         conv_centers_times[ind2[0][ind],ind2[1][ind]] = 0.0
         
     ind3                       = np.nonzero(h<hc)
-    ind4                       = np.nonzero((h<hc) & (conv_centers_times < 1.0))
+    ind4                       = np.nonzero((h<hc) & (conv_centers_times == 0.0))
     
     for ind in range(ind3[1].shape[0]):
-        conv_centers[ ind3[0][ind], ind3[1][ind]] = 1.0
+        conv_centers[ ind3[0][ind], ind3[1][ind]] = True
     for ind in range(ind4[1].shape[0]):
         conv_centers_times[ind4[0][ind],ind4[1][ind]] = t
     return None
 
+@jit(nopython=True)
+def computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times):
+    """ This functions takes arrays """
+    for ind,val in np.ndenumerate(h):
+        if val > hc or ((t - conv_centers_times[ind]) >= tauc):
+            conv_centers[ind] = False
+            conv_centers_times[ind] = 0.0
+        else:
+            conv_centers[ind] = True
+            if conv_centers_times[ind] == 0.0:
+                conv_centers_times[ind] = t
+            else:
+                continue        
+    return None
+#@vectorize([float64(float64,float64,float64,float64,float64,float64)])
 @jit(nopython=True)
 def heatingfunction(t,distsq,conv_center_time,q0,tauc,R2):
     """ This function must receive strictly floats """                       
@@ -180,8 +215,8 @@ de.operators.parseables['Q']        = DiabaticTerm
 
 problem                             = de.IVP(domain, variables=['u','v','h','ux','hx','vy','hy','uy','vx'])
 #problem.meta['u']['x']['dirichlet'] = True
-problem.parameters['conv_centers']  = conv_centers
-problem.parameters['conv_centers_times'] = conv_centers_times
+#problem.parameters['conv_centers']  = conv_centers
+#problem.parameters['conv_centers_times'] = conv_centers_times
 
 
 problem.parameters['g']             = gravity
@@ -195,7 +230,7 @@ problem.parameters['hc']            = critical_geopotential
 problem.parameters['r']             = radiative_cooling
 problem.add_equation("dt(u) + g*dx(h) - f*v  - (-1)**(hs+1)*nu*dx(dx(u)) - (-1)**(hs+1)*nu*dy(dy(u)) = - u*ux - v*uy ") #check it need changing for dx(h)
 problem.add_equation("dt(v) + g*dy(h) + f*u  - (-1)**(hs+1)*nu*dx(dx(v)) - (-1)**(hs+1)*nu*dy(dy(v)) = - v*vy - u*vx ") #check it need changing for dx(h)
-problem.add_equation("dt(h)  - (-1)**(hs+1)*nu*dx(dx(h)) - (-1)**(hs+1)*nu*dy(dy(h)) = - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,conv_centers,conv_centers_times,q0,tauc,R,hc) - r ")
+problem.add_equation("dt(h)  - (-1)**(hs+1)*nu*dx(dx(h)) - (-1)**(hs+1)*nu*dy(dy(h)) = - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc) - r ")
 problem.add_equation("ux - dx(u) = 0")
 problem.add_equation("hx - dx(h) = 0")
 problem.add_equation("vy - dy(v) = 0")
@@ -212,6 +247,10 @@ solver =  problem.build_solver(ts)
 
 x = domain.grid(0)
 y = domain.grid(1)
+xmax_local = np.amax(x)
+xmin_local = np.amin(x)
+ymax_local = np.amax(y)
+ymin_local = np.amin(y)
 u = solver.state['u']
 ux = solver.state['ux']
 uy = solver.state['uy']
@@ -231,6 +270,9 @@ v['g'] = 0.0
 #print(np.shape(h['g'].data))
 nxlocal = h['g'].shape[0]
 nylocal = h['g'].shape[1]
+
+
+
 h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
 #h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
 
@@ -243,20 +285,20 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 180000
+solver.stop_sim_time = 1800000
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
-initial_dt = 100
+initial_dt = dt_max
 #print(initial_dt)
 cfl = flow_tools.CFL(solver, initial_dt=initial_dt, cadence=10, safety=CFLfac,
                      max_change=1.5, min_change=0.5, max_dt=dt_max, threshold=0.5)
 #initial_dt = 0.2*Lx/nx
-#cfl = flow_tools.CFL(solver,initial_dt,safety=0.5)
+#cfl = flow_tools.CFL(solver,initial_dt=initial_dt,cadence=10,safety=0.5,threshold=0.5)
 cfl.add_velocities(('u','v'))
 
 
 
-analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=3600, max_writes=300)
+analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=3600, max_writes=300,parallel=False)
 #analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', iter=1, max_writes=300)
 analysis.add_task('h',layout='g')
 analysis.add_task('u',layout='g')
@@ -264,8 +306,8 @@ analysis.add_task('v',layout='g')
 analysis.add_task('y',layout='g')
 analysis.add_task('x',layout='g')
 #analysis.add_task('Q',layout='g')
-analysis.add_task('conv_centers',layout='g')
-analysis.add_task('conv_centers_times',layout='g')
+#analysis.add_task('conv_centers',layout='g')
+#analysis.add_task('conv_centers_times',layout='g')
 solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
 
@@ -276,7 +318,7 @@ start_time = time.time()
 while solver.ok:
     dt = cfl.compute_dt()
     solver.step(dt,trim=False)
-    if solver.iteration % 20 == 0:
+    if solver.iteration % 100 == 0:
         logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
 
 end_time = time.time()

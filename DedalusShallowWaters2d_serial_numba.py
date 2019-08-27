@@ -46,13 +46,13 @@ gravity              = 10.0
 #gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
-heating_amplitude    = 1.0e9 #originally 9 for heating, -8 for cooling
+heating_amplitude    = 1.0e11 #originally 9 for heating, -8 for cooling
 radiative_cooling    = (1.12/3.0)*1.0e-8
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
 convective_radius    = 20000.0
 critical_geopotential = 40.0
-k                    = 2*np.pi/500 #1000 is wavelength = 1km
+k                    = 2*np.pi/1000 #1000 is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
 H                    = 40.0#/(gravity*k**2)
 omega                   = np.sqrt(gravity*H*k**2) #wavelength to be resolved
@@ -90,8 +90,13 @@ def ConvHeating(*args):
 #    print("Conv_centers",conv_centers.shape)
 #    print("Grid:",x.shape)
     computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times)
+    #print("From the inside: My rank, min(x), max(x), min (y), max(y) ",rank, np.amin(x),np.amax(x),np.amin(y),np.amax(y))
+    xmax_local = np.amax(x)
+    xmin_local = np.amin(x)
+    ymax_local = np.amax(y)
+    ymin_local = np.amin(y)
     #### MPI version #######
-    indices_out         = np.nonzero( (conv_centers!=0.0) & ((t - conv_centers_times)<tauc))
+    indices_out         = np.nonzero(conv_centers)
     centers_local_x     = x[indices_out]
     centers_local_y     = y[indices_out]
     centers_local_times = conv_centers_times[indices_out]
@@ -185,12 +190,12 @@ def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
 def computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
     for ind,val in np.ndenumerate(h):
-        if val > hc or ((t - conv_centers_times[ind]) >= tauc):
+        if val > hc:
             conv_centers[ind] = False
             conv_centers_times[ind] = 0.0
         else:
             conv_centers[ind] = True
-            if conv_centers_times[ind] == 0.0:
+            if conv_centers_times[ind] == 0.0 or ((t - conv_centers_times[ind]) >= tauc):
                 conv_centers_times[ind] = t
             else:
                 continue        
@@ -247,10 +252,10 @@ solver =  problem.build_solver(ts)
 
 x = domain.grid(0)
 y = domain.grid(1)
-xmax_local = np.amax(x)
-xmin_local = np.amin(x)
-ymax_local = np.amax(y)
-ymin_local = np.amin(y)
+#xmax_local = np.amax(x)
+#xmin_local = np.amin(x)
+#ymax_local = np.amax(y)
+#ymin_local = np.amin(y)
 u = solver.state['u']
 ux = solver.state['ux']
 uy = solver.state['uy']
@@ -261,6 +266,8 @@ h = solver.state['h']
 hx = solver.state['hx']
 hy = solver.state['hy']
 
+
+#print("From the outside: My rank, min(x), max(x), min (y), max(y) ",rank, np.amin(x),np.amax(x),np.amin(y),np.amax(y))
 
 amp    = 4.0
 u['g'] = 0.0
@@ -285,7 +292,7 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 1800000
+solver.stop_sim_time = 8640000
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max
@@ -298,7 +305,7 @@ cfl.add_velocities(('u','v'))
 
 
 
-analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=3600, max_writes=300,parallel=False)
+analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=7200, max_writes=300)
 #analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', iter=1, max_writes=300)
 analysis.add_task('h',layout='g')
 analysis.add_task('u',layout='g')

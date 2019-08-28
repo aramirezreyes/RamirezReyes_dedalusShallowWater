@@ -108,7 +108,7 @@ def ConvHeating(*args):
         centers_gathered_x     = np.hstack(comm.allgather(centers_local_x))
         centers_gathered_y     = np.hstack(comm.allgather(centers_local_y))
         centers_gathered_times = np.hstack(comm.allgather(centers_local_times))
-        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R)
+        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q
@@ -131,7 +131,7 @@ def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_time
 
 
 @jit(nopython=True)
-def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R):    
+def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
         xx              = val_out
@@ -292,7 +292,7 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 8640000
+solver.stop_sim_time = 864000
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max

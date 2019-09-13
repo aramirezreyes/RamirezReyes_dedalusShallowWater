@@ -23,6 +23,12 @@ comm = MPI.COMM_WORLD
 mpisize = comm.Get_size()
 mpirank = comm.Get_rank()
 
+mpirankr = (mpirank - 1)%mpisize
+mpirankl = (mpirank + 1)%mpisize
+
+
+
+
 #Domain specs
 Lx                   = (1.0e6)
 nx                   = (200)
@@ -106,13 +112,19 @@ def ConvHeating(*args):
     numberofcenters     = np.sum(centers_shape)
     #print(numberofcenters)
     comm.barrier()
-    #if mpirank == mpisize:
-    #    contigous_domain_back = mpirank-1
-    #    contigu
+    
     if numberofcenters > 0:
-         centers_gathered_x     = np.hstack(comm.allgather(centers_local_x))
-         centers_gathered_y     = np.hstack(comm.allgather(centers_local_y))
-         centers_gathered_times = np.hstack(comm.allgather(centers_local_times))
+         centers_gathered_x = np.array(comm.allgather(centers_local_x))[[mpirankl,mpirank,mpirankr]]
+         centers_gathered_x = np.hstack(centers_gathered_x)
+
+         centers_gathered_y = np.array(comm.allgather(centers_local_y))[[mpirankl,mpirank,mpirankr]]
+         centers_gathered_y  = np.hstack(centers_gathered_y)
+
+         centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
+         centers_gathered_times = np.hstack(centers_gathered_times)
+         
+         #centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
+         #centers_gathered_times = np.hstack(comm.allgather(centers_local_times)[[mpirankl,mpirank,mpirankr]] )
          comm.barrier()
          #print("Rank: ",rank,"I have futures in: ",np.nonzero(centers_gathered_times > t))
          heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)

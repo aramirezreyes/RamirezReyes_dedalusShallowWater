@@ -52,7 +52,7 @@ radiative_cooling    = (1.12/3.0)*1.0e-8
 convective_timescale = 28800.0
 convective_radius    = 20000.0
 critical_geopotential = 40.0
-k                    = 2*np.pi/1000 #1000 is wavelength = 1km
+k                    = 2*np.pi/2000 #1000 is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
 H                    = 40.0#/(gravity*k**2)
 omega                   = np.sqrt(gravity*H*k**2) #wavelength to be resolved
@@ -89,7 +89,7 @@ def ConvHeating(*args):
     """
 #    print("Conv_centers",conv_centers.shape)
 #    print("Grid:",x.shape)
-    computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times)
+    computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times)
     #print("From the inside: My rank, min(x), max(x), min (y), max(y) ",rank, np.amin(x),np.amax(x),np.amin(y),np.amax(y))
     xmax_local = np.amax(x)
     xmin_local = np.amin(x)
@@ -108,30 +108,15 @@ def ConvHeating(*args):
         centers_gathered_x     = np.hstack(comm.allgather(centers_local_x))
         centers_gathered_y     = np.hstack(comm.allgather(centers_local_y))
         centers_gathered_times = np.hstack(comm.allgather(centers_local_times))
-        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
+        heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q
 
 
-@jit(nopython=True,parallel=True)
-def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2):    
-    for ind in range(centers_gathered_x.shape[0]):
-        xx              = centers_gathered_x[ind]
-        yy              = centers_gathered_y[ind]
-        time_convecting = centers_gathered_times[ind]
-        distsq          = (x-xx)**2 + (y-yy)**2
-        indices_in      = np.nonzero(distsq < R2)
-        if indices_in[0].shape[0] > 0:
-            for ind_in in range(indices_in[0].shape[0]):
-                idxx_in            = indices_in[0][ind_in]
-                idxy_in            = indices_in[1][ind_in]
-                Q[idxx_in,idxy_in] = Q[idxx_in,idxy_in] + heatingfunction(t,distsq[idxx_in,idxy_in],time_convecting,q0,tauc,R2)    
-    return None
-
 
 @jit(nopython=True)
-def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local):    
+def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
         xx              = val_out
@@ -163,31 +148,8 @@ def heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2):
             Q[idxx_in,idxy_in] = Q[idxx_in,idxy_in] +  heatingfunction(t,distsq[idxx_in,idxy_in],conv_centers_times[idxx,idxy],q0,tauc,R2)    
     return None
 
-
-@jit(nopython=True,parallel=True)
-def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
-    """ This functions takes arrays """
-    ind1                       = np.nonzero((t - conv_centers_times)  >= tauc)
-    for ind in range(ind1[1].shape[0]):
-        conv_centers[ind1[0][ind],ind1[1][ind]] = False
-        conv_centers_times[ind1[0][ind],ind1[1][ind]] = 0.0
-        
-    ind2                       = np.nonzero(h >= hc)
-    for ind in range(ind2[1].shape[0]):
-        conv_centers[ind2[0][ind],ind2[1][ind]] = False
-        conv_centers_times[ind2[0][ind],ind2[1][ind]] = 0.0
-        
-    ind3                       = np.nonzero(h<hc)
-    ind4                       = np.nonzero((h<hc) & (conv_centers_times == 0.0))
-    
-    for ind in range(ind3[1].shape[0]):
-        conv_centers[ ind3[0][ind], ind3[1][ind]] = True
-    for ind in range(ind4[1].shape[0]):
-        conv_centers_times[ind4[0][ind],ind4[1][ind]] = t
-    return None
-
 @jit(nopython=True)
-def computecentersandtimes2(t,h,hc,tauc,conv_centers,conv_centers_times):
+def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
     for ind,val in np.ndenumerate(h):
         if val > hc:

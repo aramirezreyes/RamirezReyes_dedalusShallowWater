@@ -29,6 +29,8 @@ mpirankl = (mpirank + 1)%mpisize
 
 
 
+
+
 #Domain specs
 Lx                   = (1.0e6)
 nx                   = (200)
@@ -76,7 +78,7 @@ dt_max               = (2*np.pi/omega) #/19
 CFLfac               = 0.8
 start_dt             = dt_max
 
-
+buf = bytearray(1<<21)
 
 #**********Convective heating term*****************#
 
@@ -104,9 +106,9 @@ def ConvHeating(*args):
     #print("Rank: ",rank,"I have futures in: ",np.nonzero(conv_centers_times > t)," time: ",t)
     #### MPI version #######
     indices_out         = np.nonzero(conv_centers)
-    centers_local_x     = x[indices_out]
-    centers_local_y     = y[indices_out]
-    centers_local_times = conv_centers_times[indices_out]
+    centers_local_x     = np.array(x[indices_out])
+    centers_local_y     = np.array(y[indices_out])
+    centers_local_times = np.array(conv_centers_times[indices_out])
     comm.barrier()
     centers_shape       = comm.allgather(centers_local_x.shape[0])
     numberofcenters     = np.sum(centers_shape)
@@ -114,20 +116,43 @@ def ConvHeating(*args):
     comm.barrier()
     
     if numberofcenters > 0:
-         centers_gathered_x = np.array(comm.allgather(centers_local_x))[[mpirankl,mpirank,mpirankr]]
-         centers_gathered_x = np.hstack(centers_gathered_x)
+         ###For times
+        reqsl = comm.isend(np.array([centers_local_x,centers_local_y,centers_local_times]),dest=mpirankl)
+        reqr = comm.irecv(buf,source=mpirankr)
+        clr = reqr.wait()
+        reqsl.wait()
+        comm.barrier()
+        reqsr = comm.isend([centers_local_x,centers_local_y,centers_local_times],dest=mpirankr)
+        reql = comm.irecv(buf,source=mpirankl)
+        cll = reql.wait()
+        reqsr.wait()
+        comm.barrier()
+        centers_gathered_x = np.hstack([cll[0],centers_local_x,clr[0]])
+        centers_gathered_y = np.hstack([cll[1],centers_local_y,clr[1]])
+        centers_gathered_times = np.hstack([cll[2],centers_local_times,clr[2]])
 
-         centers_gathered_y = np.array(comm.allgather(centers_local_y))[[mpirankl,mpirank,mpirankr]]
-         centers_gathered_y  = np.hstack(centers_gathered_y)
+        
+        # centers_gathered_x = np.array(comm.allgather(centers_local_x))[[mpirankl,mpirank,mpirankr]]
+        # centers_gathered_x = np.hstack(centers_gathered_x)
+        
+        # centers_gathered_y = np.array(comm.allgather(centers_local_y))[[mpirankl,mpirank,mpirankr]]
+        # centers_gathered_y  = np.hstack(centers_gathered_y)
+        
+        # centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
+        # centers_gathered_times = np.hstack(centers_gathered_times)
 
-         centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
-         centers_gathered_times = np.hstack(centers_gathered_times)
+        # print("")
          
-         #centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
-         #centers_gathered_times = np.hstack(comm.allgather(centers_local_times)[[mpirankl,mpirank,mpirankr]] )
-         comm.barrier()
+     #   centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
+     #   centers_gathered_times = np.hstack(comm.allgather(centers_local_times)[[mpirankl,mpirank,mpirankr]] )
+         
+        
+        #print("My rank is: ",mpirank," My xs are: ",centers_gathered_x)
+
+        #print("My rank is: ",mpirank," My ys are: ",centers_gathered_y)
+        #print("My rank is: ",mpirank," My ts are: ",centers_gathered_times)
          #print("Rank: ",rank,"I have futures in: ",np.nonzero(centers_gathered_times > t))
-         heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
+        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q

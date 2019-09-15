@@ -64,6 +64,8 @@ critical_geopotential = 40.0
 damping_timescale = 2.0*86400.0
 relaxation_height = 39.0
 
+exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
+print(exp_name)
 k                    = 2*np.pi/2000 #1000 is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
 H                    = 40.0#/(gravity*k**2)
@@ -258,8 +260,8 @@ cfl.add_velocities(('u','v'))
 
 
 
-analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', sim_dt=900, max_writes=300)
-#analysis = solver.evaluator.add_file_handler('analysis_convgravicor_bigdt', iter=1, max_writes=300)
+#analysis = solver.evaluator.add_file_handler(exp_name, sim_dt=900, max_writes=300)
+analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
 analysis.add_task('h',layout='g')
 analysis.add_task('u',layout='g')
 analysis.add_task('v',layout='g')

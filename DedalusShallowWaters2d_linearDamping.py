@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-from numba import jit
-from numba import vectorize, float64
 import numpy as np
 import itertools
 import h5py
@@ -10,7 +8,8 @@ from dedalus.extras import flow_tools
 import time
 from mpi4py import MPI
 import logging
-from convectiveParametrization import computecentersandtimes, heat_mpi2
+import pyximport; pyximport.install()
+from convectiveParametrization import computecentersandtimes, heat_mpi3
 root = logging.root
 for h in root.handlers:
     h.setLevel("INFO")
@@ -152,7 +151,7 @@ def ConvHeating(*args):
         #print("My rank is: ",mpirank," My ys are: ",centers_gathered_y)
         #print("My rank is: ",mpirank," My ts are: ",centers_gathered_times)
          #print("Rank: ",rank,"I have futures in: ",np.nonzero(centers_gathered_times > t))
-        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
+        heat_mpi3(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     return Q

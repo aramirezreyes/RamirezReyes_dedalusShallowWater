@@ -7,7 +7,7 @@ a = "analysis_convgravicor_bigdt_s"
 length(a)
 
 function readoutput(exp_name,dir="./")
-    file_list = list_files(exp_name)
+    file_list = list_files(exp_name,dir)
     dirtoread = string(dir,exp_name,"/")    
     c = h5open(string(dirtoread,file_list[1]), "r") do file
         read(file)
@@ -34,7 +34,7 @@ function readoutput(exp_name,dir="./")
     return x,y,times,h,u,v
 end
 
-function list_files(exp_name,dir=".")
+function list_files(exp_name,dir="./")
     dirtoread = string(dir,exp_name,"/")
     file_prefix = string(exp_name,"_s")
     file_list = filter(x -> endswith(x, ".h5"), readdir(dirtoread))

@@ -3,6 +3,7 @@
 from numba import jit
 from numba import vectorize, float64
 import numpy as np
+import pathlib
 import itertools
 import h5py
 import dedalus.public as de
@@ -26,15 +27,10 @@ mpirank = comm.Get_rank()
 mpirankr = (mpirank - 1)%mpisize
 mpirankl = (mpirank + 1)%mpisize
 
-
-
-
-
-
 #Domain specs
 Lx                   = (1.0e6)
 nx                   = (200)
-Ly                   = (1.5e6)
+Ly                   = (1.0e6)
 ny                   = (200)
 # Create bases and domain
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
@@ -53,9 +49,9 @@ hyperdiff_power      = 1.0
 ## Physics
 gravity              = 10.0
 #gravity = 0.0
-coriolis_parameter   = 5e-4;
+coriolis_parameter   = 1e-4;
 ### Convective Params
-heating_amplitude    = 3.0e13 #originally 9 for heating, -8 for cooling
+heating_amplitude    = 5.0e12 #originally 9 for heating, -8 for cooling
 radiative_cooling    = (1.12/3.0)*1.0e-8
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
@@ -141,9 +137,9 @@ def ConvHeating(*args):
         # centers_gathered_y  = np.hstack(centers_gathered_y)
         
         # centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
-        # centers_gathered_times = np.hstack(centers_gathered_times)
+        #centers_gathered_times = np.hstack(centers_gathered_times)
 
-        # print("")
+        print("One timestep, time:",t)
          
      #   centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
      #   centers_gathered_times = np.hstack(comm.allgather(centers_local_times)[[mpirankl,mpirank,mpirankr]] )
@@ -211,43 +207,42 @@ solver =  problem.build_solver(ts)
 
 #******Field initialization********#
 
-x = domain.grid(0)
-y = domain.grid(1)
-
-u = solver.state['u']
-ux = solver.state['ux']
-uy = solver.state['uy']
-v = solver.state['v']
-vx = solver.state['vx']
-vy = solver.state['vy']
-h = solver.state['h']
-hx = solver.state['hx']
-hy = solver.state['hy']
-
-amp    = 4.0
-u['g'] = 0.0
-v['g'] = 0.0
-#h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
-#h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
-#print(np.shape(h['g'].data))
-nxlocal = h['g'].shape[0]
-nylocal = h['g'].shape[1]
-
-
-np.random.seed(mpirank)
-h['g'] = H + amp*np.random.rand(nxlocal,nylocal)
-#h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
-
-u.differentiate('x',out=ux)
-v.differentiate('y',out=vy)
-v.differentiate('x',out=vx)
-u.differentiate('y',out=uy)
-h.differentiate('x',out=hx)
-h.differentiate('y',out=hy)
-
+if not pathlib.Path('restart.h5').exists():
+    x = domain.grid(0)
+    y = domain.grid(1)
+    u = solver.state['u']
+    ux = solver.state['ux']
+    uy = solver.state['uy']
+    v = solver.state['v']
+    vx = solver.state['vx']
+    vy = solver.state['vy']
+    h = solver.state['h']
+    hx = solver.state['hx']
+    hy = solver.state['hy']
+    
+    amp    = 4.0
+    u['g'] = 0.0
+    v['g'] = 0.0
+    #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
+    #h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
+    #print(np.shape(h['g'].data))
+    nxlocal = h['g'].shape[0]
+    nylocal = h['g'].shape[1]
+    np.random.seed(mpirank)
+    h['g'] = H + amp*np.random.rand(nxlocal,nylocal)
+    #h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
+    u.differentiate('x',out=ux)
+    v.differentiate('y',out=vy)
+    v.differentiate('x',out=vx)
+    u.differentiate('y',out=uy)
+    h.differentiate('x',out=hx)
+    h.differentiate('y',out=hy)
+else:
+    write, last_dt = solver.load_state('restart.h5',-1)
 
 
-solver.stop_sim_time = 100*86400
+
+solver.stop_sim_time = 7*86400
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max
@@ -260,16 +255,17 @@ cfl.add_velocities(('u','v'))
 
 
 
-#analysis = solver.evaluator.add_file_handler(exp_name, sim_dt=900, max_writes=300)
-analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
-analysis.add_task('h',layout='g')
-analysis.add_task('u',layout='g')
-analysis.add_task('v',layout='g')
-analysis.add_task('y',layout='g')
-analysis.add_task('x',layout='g')
-#analysis.add_task('Q',layout='g')
-#analysis.add_task('conv_centers',layout='g')
-#analysis.add_task('conv_centers_times',layout='g')
+analysis = solver.evaluator.add_file_handler(exp_name, sim_dt=3600, max_writes=300)
+#analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
+#analysis.add_task('h',layout='g')
+#analysis.add_task('u',layout='g')
+#analysis.add_task('v',layout='g')
+#analysis.add_task('y',layout='g')
+#analysis.add_task('x',layout='g')
+
+#snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=86400, max_writes=50, mode='overwrite')
+#snapshots.add_system(solver.state)
+
 solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
 

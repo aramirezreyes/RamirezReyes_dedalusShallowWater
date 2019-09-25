@@ -132,7 +132,7 @@ function animateheatmap2(h,u,v,x,y,times,every=1,output="output.mp4")
     end
 end
 
-function animateheatmap(h,u,v,x,y,times,every=1,output="output.mp4")
+function animateheatmap(h,u,v,x,y,times,every=1,outputfile=string(exp_name,".mp4"))
     times_days = times./86400
     
     #    colormap_symmetric = ::pu_or
@@ -166,13 +166,13 @@ function animateheatmap(h,u,v,x,y,times,every=1,output="output.mp4")
     grandscene = hbox( vbox(vbox(sc3t,colorbar3),vbox(sc4t,colorbar4)) ,
                    vbox(vbox(sc1t,colorbar1),vbox(sc2t,colorbar2)))
     grandsct = title(grandscene,"Time: 0s",parent=Scene(resolution=(770,800)))
-    record(grandsct, "output.mp4", 1:every:size(h,3)) do t
+    record(grandsct, outputfile, 1:every:size(h,3)) do t
         titlestr = @sprintf("Time: %1.1f days",times_days[t])
         heat[3] = h_anomaly[:,:,t]
         speed[3] = sp[:,:,t]
         speedu[3] = u[:,:,t]
         speedv[3] = v[:,:,t]
-        push!(grandsct.children[2][end][:text],titlestr)
+        push!(grandsct.children[2][end][:text],string(exp_name," - ",titlestr))
 #        AbstractPlotting.update_limits!(scene1)
         AbstractPlotting.update!(scene1)
  #       AbstractPlotting.update_limits!(scene2)
@@ -194,8 +194,8 @@ end
 
 
 
-function readandanimate(exp_name)
-    x,y,times,h,u,v = readoutput(exp_name)
+function readandanimate(exp_name,dir="./")
+    x,y,times,h,u,v = readoutput(exp_name,dir)
     animateheatmap(h,u,v,x,y,times)
 end
 

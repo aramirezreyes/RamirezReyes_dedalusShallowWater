@@ -4,6 +4,8 @@ from numba import jit
 from numba import vectorize, float64
 import numpy as np
 import pathlib
+import sys
+import importlib
 import itertools
 import h5py
 import dedalus.public as de
@@ -27,56 +29,66 @@ mpirank = comm.Get_rank()
 mpirankr = (mpirank - 1)%mpisize
 mpirankl = (mpirank + 1)%mpisize
 
-#Domain specs
-Lx                   = (1.0e6)
-nx                   = (200)
-Ly                   = (1.0e6)
-ny                   = (200)
-# Create bases and domain
-x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
-y_basis              = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
-domain               = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
-#Pretty sure that what you want to do is get the local shape of the grid on each process at the beginning of the run:
-local_shape = domain.dist.grid_layout.local_shape(scales=1.5)
-#Then create NumPy arrays on each processor locally that do what you're interested in :
-conv_centers = np.zeros(local_shape, dtype=bool)
-conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
-##Numerics
-diff_coef            = 1.0e4 #I had 5
-hyperdiff_power      = 1.0
-## Physics
-gravity              = 10.0
-#gravity = 0.0
-coriolis_parameter   = 1e-4;
-### Convective Params
-heating_amplitude    = 5.0e12 #originally 9 for heating, -8 for cooling
-radiative_cooling    = (1.12/3.0)*1.0e-8
-#radiative_cooling    = (1.12/3)*1e-4
-convective_timescale = 28800.0
-convective_radius    = 30000.0
-critical_geopotential = 40.0
-damping_timescale = 2.0*86400.0
-relaxation_height = 39.0
+if len(sys.argv) != 2:
+    print('This script receives exactly 1 command line argument')
+    print('Usage: python3 scriptname.py parameters.py')
+    messagetoprint="""
+These names have to be defined in the parameters file (values are examples):
 
-exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
-print(exp_name)
-k                    = 2*np.pi/2000 #1000 is wavelength = 1km
-#k                    = 2.0*np.pi/10.0
-H                    = 40.0#/(gravity*k**2)
-omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
-# #Initialize fields
-# #conv_centers['g']         = 0.0
-# #conv_centers_times['g']   = 0.0
+Numerics:
+    
+    diff_coef            = 1.0e4 #I had 5
+    hyperdiff_power      = 1.0
 
+Physics:
+    
+    gravity              = 10.0
+    coriolis_parameter   = 1e-4;
+
+Convection parameters:
+
+    heating_amplitude    = 5.0e12 #originally 9 for heating, -8 for cooling
+    radiative_cooling    = (1.12/3.0)*1.0e-8
+    convective_timescale = 28800.0
+    convective_radius    = 30000.0
+    critical_geopotential = 40.0
+
+For the linear damping term:
+
+    damping_timescale = 2.0*86400.0
+    relaxation_height = 39.0
+    """
+    print(messagetoprint)
+    exit()
+else:
+    parametersfile = sys.argv[1]
+    params         = importlib.import_module(parametersfile)
+try: outputpath=params.outputpath
+except AttributeError: outputpath = './'
+
+#Domain specs
+Lx                 = (1.0e6)
+nx                 = (200)
+Ly                 = (1.0e6)
+ny                 = (200)
+x_basis            = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
+y_basis            = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
+domain             = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
+local_shape        = domain.dist.grid_layout.local_shape(scales=1.5)
+conv_centers       = np.zeros(local_shape, dtype=bool)
+conv_centers_times = np.zeros(local_shape, dtype=np.float64)
+exp_name           = 'f'+ format(params.coriolis_parameter,"1.0e")+'_q'+format(params.heating_amplitude,"1.0e")+'_r'+str(int(params.convective_radius/1000))+'_hc'+str(int(params.relaxation_height))
 
 # # *****USER-CFL***** #
-dt_max               = (2*np.pi/omega) #/19
-CFLfac               = 0.8
-start_dt             = dt_max
-
-buf = bytearray(1<<21)
+k                  = 2*np.pi/2000 #1000 is wavelength = 1km
+H                  = 40.0#/(gravity*k**2)
+omega              = np.sqrt(params.gravity*H*k**2) #wavelength to be resolved
+dt_max             = (2*np.pi/omega) #/19
+CFLfac             = 0.8
+start_dt           = dt_max
+buf                = bytearray(1<<21)
 
 #**********Convective heating term*****************#
 
@@ -139,7 +151,7 @@ def ConvHeating(*args):
         # centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
         #centers_gathered_times = np.hstack(centers_gathered_times)
 
-        print("One timestep, time:",t)
+#        print("One timestep, time:",t)
          
      #   centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
      #   centers_gathered_times = np.hstack(comm.allgather(centers_local_times)[[mpirankl,mpirank,mpirankr]] )
@@ -168,17 +180,17 @@ problem.substitutions['diff(A)'] =  '(-1)**(hs+1)*nu*dx(dx(A)) + (-1)**(hs+1)*nu
 #problem.substitutions['damp(A,A0,tau)'] = '(A-A0)/tau'
 problem.parameters['Lenx']            = Lx
 problem.parameters['Leny']            = Ly
-problem.parameters['g']             = gravity
-problem.parameters['nu']            = diff_coef
-problem.parameters['hs']            = hyperdiff_power
-problem.parameters['f']             = coriolis_parameter
-problem.parameters['q0']            = heating_amplitude
-problem.parameters['tauc']          = convective_timescale
-problem.parameters['R']             = convective_radius
-problem.parameters['hc']            = critical_geopotential
-problem.parameters['r']             = radiative_cooling
-problem.parameters['taud']          = damping_timescale
-problem.parameters['h0']            = relaxation_height
+problem.parameters['g']             = params.gravity
+problem.parameters['nu']            = params.diff_coef
+problem.parameters['hs']            = params.hyperdiff_power
+problem.parameters['f']             = params.coriolis_parameter
+problem.parameters['q0']            = params.heating_amplitude
+problem.parameters['tauc']          = params.convective_timescale
+problem.parameters['R']             = params.convective_radius
+problem.parameters['hc']            = params.critical_geopotential
+problem.parameters['r']             = params.radiative_cooling
+problem.parameters['taud']          = params.damping_timescale
+problem.parameters['h0']            = params.relaxation_height
 problem.add_equation("dt(u) + g*dx(h) - f*v  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
 problem.add_equation("dt(v) + g*dy(h) + f*u  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)
 problem.add_equation("dt(h)  = (diff(h))   - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -(h-h0)/taud -r")
@@ -199,37 +211,33 @@ problem.add_equation("vy - dy(v) = 0")
 problem.add_equation("hy - dy(h) = 0")
 problem.add_equation("vx - dx(v) = 0")
 problem.add_equation("uy - dy(u) = 0")
-
 ts = de.timesteppers.RK443
-
-
 solver =  problem.build_solver(ts)
 
 #******Field initialization********#
 
 if not pathlib.Path('restart.h5').exists():
-    x = domain.grid(0)
-    y = domain.grid(1)
-    u = solver.state['u']
-    ux = solver.state['ux']
-    uy = solver.state['uy']
-    v = solver.state['v']
-    vx = solver.state['vx']
-    vy = solver.state['vy']
-    h = solver.state['h']
-    hx = solver.state['hx']
-    hy = solver.state['hy']
-    
-    amp    = 4.0
-    u['g'] = 0.0
-    v['g'] = 0.0
+    x       = domain.grid(0)
+    y       = domain.grid(1)
+    u       = solver.state['u']
+    ux      = solver.state['ux']
+    uy      = solver.state['uy']
+    v       = solver.state['v']
+    vx      = solver.state['vx']
+    vy      = solver.state['vy']
+    h       = solver.state['h']
+    hx      = solver.state['hx']
+    hy      = solver.state['hy']
+    amp     = 4.0
+    u['g']  = 0.0
+    v['g']  = 0.0
     #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
     #h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
     #print(np.shape(h['g'].data))
     nxlocal = h['g'].shape[0]
     nylocal = h['g'].shape[1]
     np.random.seed(mpirank)
-    h['g'] = H + amp*np.random.rand(nxlocal,nylocal)
+    h['g']  = H + amp*np.random.rand(nxlocal,nylocal)
     #h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
     u.differentiate('x',out=ux)
     v.differentiate('y',out=vy)
@@ -241,27 +249,22 @@ else:
     write, last_dt = solver.load_state('restart.h5',-1)
 
 
-
-solver.stop_sim_time = 7*86400
-solver.stop_wall_time = np.inf
-solver.stop_iteration = np.inf
-initial_dt = dt_max
-#print(initial_dt)
-cfl = flow_tools.CFL(solver, initial_dt=initial_dt, cadence=10, safety=CFLfac,
-                     max_change=1.5, min_change=0.5, max_dt=dt_max, threshold=0.5)
-#initial_dt = 0.2*Lx/nx
-#cfl = flow_tools.CFL(solver,initial_dt=initial_dt,cadence=10,safety=0.5,threshold=0.5)
+solver.stop_sim_time            = params.end_time*86400
+solver.stop_wall_time           = np.inf
+solver.stop_iteration           = np.inf
+initial_dt                      = dt_max
+cfl                             = flow_tools.CFL(solver, initial_dt=initial_dt, cadence=10, safety=CFLfac,max_change =1.5, min_change=0.5, max_dt=dt_max, threshold=0.5)
 cfl.add_velocities(('u','v'))
 
 
 
-analysis = solver.evaluator.add_file_handler(exp_name, sim_dt=3600, max_writes=300)
+analysis = solver.evaluator.add_file_handler(outputpath+exp_name, sim_dt=3600, max_writes=300)
 #analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
-#analysis.add_task('h',layout='g')
-#analysis.add_task('u',layout='g')
-#analysis.add_task('v',layout='g')
-#analysis.add_task('y',layout='g')
-#analysis.add_task('x',layout='g')
+analysis.add_task('h',layout='g')
+analysis.add_task('u',layout='g')
+analysis.add_task('v',layout='g')
+analysis.add_task('y',layout='g')
+analysis.add_task('x',layout='g')
 
 #snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=86400, max_writes=50, mode='overwrite')
 #snapshots.add_system(solver.state)

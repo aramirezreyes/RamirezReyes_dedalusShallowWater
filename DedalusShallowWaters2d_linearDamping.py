@@ -191,9 +191,9 @@ problem.parameters['hc']            = params.critical_geopotential
 problem.parameters['r']             = params.radiative_cooling
 problem.parameters['taud']          = params.damping_timescale
 problem.parameters['h0']            = params.relaxation_height
-problem.add_equation("dt(u) + g*dx(h) - f*v  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
-problem.add_equation("dt(v) + g*dy(h) + f*u  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)
-problem.add_equation("dt(h)  = (diff(h))   - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -(h-h0)/taud -r")
+problem.add_equation("dt(u) + g*dx(h) - f*v  - (diff(u)) + u/taud =  - u*ux - v*uy ") #check it need changing for dx(h)
+problem.add_equation("dt(v) + g*dy(h) + f*u  - (diff(v)) + v/taud = - v*vy - u*vx ") #check it need changing for dx(h)
+problem.add_equation("dt(h)  - (diff(h)) + h/taud = - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) + h0/taud -r")
 
 #problem.add_equation("dt(u) + g*dx(h)  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
 #problem.add_equation("dt(v) + g*dy(h)  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)

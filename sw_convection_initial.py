@@ -5,6 +5,7 @@ from numba import vectorize, float64
 import numpy as np
 import itertools
 import h5py
+import matplotlib.pyplot as plt
 import dedalus.public as de
 from dedalus.extras import flow_tools
 import time
@@ -30,9 +31,9 @@ mpirankl = (mpirank + 1)%mpisize
 
 
 #Domain specs
-Lx                   = (1.0e6)
+Lx                   = (2.0e5)
 nx                   = (200)
-Ly                   = (1.0e6)
+Ly                   = (2.0e5)
 ny                   = (200)
 # Create bases and domain
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
@@ -53,7 +54,7 @@ gravity              = 10.0
 #gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
-heating_amplitude    = 3.0e12 #originally 9 for heating, -8 for cooling
+heating_amplitude    = 3.0e14 #originally 9 for heating, -8 for cooling
 radiative_cooling    = (1.12/3.0)*1.0e-8
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
@@ -63,11 +64,12 @@ damping_timescale = 2.0*86400.0
 relaxation_height = 39.0
 
 exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
-output_path = '/global/scratch/argelreyes/'
+output_path = '/Users/arreyes/Documents/Research/Dedalus_experiments/ShallowWatersScripts/'
+#output_path = '/global/scratch/argelreyes/'
 
 k                    = 2*np.pi/2000 #1000 is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
-H                    = 40.0#/(gravity*k**2)
+H                    = 44.0#/(gravity*k**2)
 omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
 # #Initialize fields
 # #conv_centers['g']         = 0.0
@@ -187,7 +189,7 @@ problem.parameters['taud']          = damping_timescale
 problem.parameters['h0']            = relaxation_height
 ### Full physics
 problem.add_equation("dt(u) + g*dx(h) - f*v +nu*lapl(lapl(u)) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
-problem.add_equation("dt(v) + g*dy(h) + f*u   +nu*lapla(lapl(v)) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
+problem.add_equation("dt(v) + g*dy(h) + f*u   +nu*lapl(lapl(v)) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
 problem.add_equation("dt(h)   +nu*lapl(lapl(h))   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
 #### No coriolis
 #problem.add_equation("dt(u) + g*dx(h)  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
@@ -230,14 +232,14 @@ amp    = 4.0
 u['g'] = 0.0
 v['g'] = 0.0
 #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
-#h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
+h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
 #print(np.shape(h['g'].data))
 nxlocal = h['g'].shape[0]
 nylocal = h['g'].shape[1]
 
 
 np.random.seed(mpirank)
-h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
+#h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
 #h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
 
 u.differentiate('x',out=ux)
@@ -262,19 +264,29 @@ cfl.add_velocities(('u','v'))
 
 
 
-#analysis = solver.evaluator.add_file_handler(output_path+exp_name, sim_dt=3600, max_writes=300)
+analysis = solver.evaluator.add_file_handler(output_path+exp_name, sim_dt=3600, max_writes=300)
 #analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
-#analysis.add_task('h',layout='g')
-#analysis.add_task('u',layout='g')
-#analysis.add_task('v',layout='g')
-#analysis.add_task('y',layout='g')
-#analysis.add_task('x',layout='g')
+analysis.add_task('h',layout='g')
+analysis.add_task('u',layout='g')
+analysis.add_task('v',layout='g')
+analysis.add_task('y',layout='g')
+analysis.add_task('x',layout='g')
 snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=86400, max_writes=50, mode='overwrite')
 snapshots.add_system(solver.state)
 solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
 
-
+if mpirank == 0:
+    x = domain.grid(0,scales=domain.dealias)
+    y = domain.grid(1,scales=domain.dealias)
+    xm, ym = np.meshgrid(x,y)
+    fig, axis = plt.subplots(figsize=(10,5))
+    p = axis.pcolormesh(xm,ym,h['g'].T, cmap='RdBu_r');
+    axis.set_xlim([0,2.0e5])
+    axis.set_ylim([0.,2.0e5])
+    cb = fig.colorbar(p,ax=axis)
+    cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']))
+    #plt.ion()
 
 logger.info('Starting loop')
 start_time = time.time()
@@ -282,9 +294,18 @@ while solver.ok:
     dt = cfl.compute_dt()
     solver.step(dt,trim=False)
     if solver.iteration % 1 == 0:
+        if mpirank == 0:
+            p.set_array(np.ravel(h['g'][:-1,:-1].T))
+            cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']) )
+            plt.draw()
+            plt.savefig('height'+str(solver.iteration)+'.png')
+            plt.pause(0.001)
+            #display.clear_output()
+            #display.display(plt.gcf())
         logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
 
 end_time = time.time()
+p.set_array(np.ravel(h['g'][:-1,:-1].T))
 
 # Print statistics
 logger.info('Run time: %f' %(end_time-start_time))

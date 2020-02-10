@@ -5,7 +5,7 @@ from numba import vectorize, float64
 import numpy as np
 import itertools
 import h5py
-import matplotlib.pyplot as plt
+
 import dedalus.public as de
 from dedalus.extras import flow_tools
 import time
@@ -25,6 +25,8 @@ mpirank = comm.Get_rank()
 mpirankr = (mpirank - 1)%mpisize
 mpirankl = (mpirank + 1)%mpisize
 
+#if mpirank == 0:
+#    import matplotlib.pyplot as plt
 
 
 
@@ -47,8 +49,8 @@ conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 1.0e4 #I had 5
-hyperdiff_power      = 1.0
+diff_coef            = 2.0e4 #I had 5
+hyperdiff_power      = 2.0 #not used with the hyperdiffusion
 ## Physics
 gravity              = 10.0
 #gravity = 0.0
@@ -67,7 +69,7 @@ exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,
 output_path = '/Users/arreyes/Documents/Research/Dedalus_experiments/ShallowWatersScripts/'
 #output_path = '/global/scratch/argelreyes/'
 
-k                    = 2*np.pi/2000 #1000 is wavelength = 1km
+k                    = 2*np.pi/500 #is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
 H                    = 44.0#/(gravity*k**2)
 omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
@@ -77,8 +79,8 @@ omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
 
 
 # # *****USER-CFL***** #
-dt_max               = (2*np.pi/omega) #/19
-CFLfac               = 0.8
+dt_max               = (2*np.pi/omega) /19
+CFLfac               = 0.5
 start_dt             = dt_max
 
 buf = bytearray(1<<21)
@@ -104,8 +106,9 @@ def ConvHeating(*args):
     xmin_local = np.amin(x)
     ymax_local = np.amax(y)
     ymin_local = np.amin(y)
-    #print("Heating")
+    #print("Process "+str(mpirank)+": Counting centers")
     computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times)
+    #print("Process "+str(mpirank)+": Finished counting centers")
     #print("Rank: ",rank,"I have futures in: ",np.nonzero(conv_centers_times > t)," time: ",t)
     #### MPI version #######
     indices_out         = np.nonzero(conv_centers)
@@ -117,8 +120,9 @@ def ConvHeating(*args):
     numberofcenters     = np.sum(centers_shape)
     #print(numberofcenters)
     comm.barrier()
-    
+
     if numberofcenters > 0:
+        #print("Process "+str(mpirank)+": Starting sharing centers with my brother processes")
          ###For times
         reqsl = comm.isend(np.array([centers_local_x,centers_local_y,centers_local_times]),dest=mpirankl)
         reqr = comm.irecv(buf,source=mpirankr)
@@ -130,6 +134,7 @@ def ConvHeating(*args):
         cll = reql.wait()
         reqsr.wait()
         comm.barrier()
+        #print("Process "+str(mpirank)+": Finished sharing centers with my brother processes")
         centers_gathered_x = np.hstack([cll[0],centers_local_x,clr[0]])
         centers_gathered_y = np.hstack([cll[1],centers_local_y,clr[1]])
         centers_gathered_times = np.hstack([cll[2],centers_local_times,clr[2]])
@@ -155,7 +160,9 @@ def ConvHeating(*args):
         #print("My rank is: ",mpirank," My ys are: ",centers_gathered_y)
         #print("My rank is: ",mpirank," My ts are: ",centers_gathered_times)
          #print("Rank: ",rank,"I have futures in: ",np.nonzero(centers_gathered_times > t))
+        #print("Process "+str(mpirank)+": Starting heating")
         heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
+        #print("Process "+str(mpirank)+": Finished heating")
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
     #print("Time",t,"max onvective heating: ",np.amax(Q))
@@ -188,9 +195,9 @@ problem.parameters['r']             = radiative_cooling
 problem.parameters['taud']          = damping_timescale
 problem.parameters['h0']            = relaxation_height
 ### Full physics
-problem.add_equation("dt(u) + g*dx(h) - f*v +nu*lapl(lapl(u)) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
-problem.add_equation("dt(v) + g*dy(h) + f*u   +nu*lapl(lapl(v)) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
-problem.add_equation("dt(h)   +nu*lapl(lapl(h))   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
+problem.add_equation("dt(u) + g*dx(h) - f*v +(nu**2)*lapl(lapl(u)) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
+problem.add_equation("dt(v) + g*dy(h) + f*u   +(nu**2)*lapl(lapl(v)) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
+problem.add_equation("dt(h)   +(nu**2)*lapl(lapl(h))   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
 #### No coriolis
 #problem.add_equation("dt(u) + g*dx(h)  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
 #problem.add_equation("dt(v) + g*dy(h)  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)
@@ -276,32 +283,30 @@ snapshots.add_system(solver.state)
 solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
 
-if mpirank == 0:
-    x = domain.grid(0,scales=domain.dealias)
-    y = domain.grid(1,scales=domain.dealias)
-    xm, ym = np.meshgrid(x,y)
-    fig, axis = plt.subplots(figsize=(10,5))
-    p = axis.pcolormesh(xm,ym,h['g'].T, cmap='RdBu_r');
-    axis.set_xlim([0,2.0e5])
-    axis.set_ylim([0.,2.0e5])
-    cb = fig.colorbar(p,ax=axis)
-    cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']))
-    #plt.ion()
+# if mpirank == 0:
+#     x = domain.grid(0,scales=domain.dealias)
+#     y = domain.grid(1,scales=domain.dealias)
+#     xm, ym = np.meshgrid(x,y)
+#     fig, axis = plt.subplots(figsize=(10,5))
+#     p = axis.pcolormesh(xm,ym,h['g'].T, cmap='RdBu_r');
+#     axis.set_xlim([0,2.0e5])
+#     axis.set_ylim([0.,2.0e5])
+#     cb = fig.colorbar(p,ax=axis)
+#     cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']))
+#     plt.ion()
 
 logger.info('Starting loop')
 start_time = time.time()
 while solver.ok:
     dt = cfl.compute_dt()
     solver.step(dt,trim=False)
-    if solver.iteration % 1 == 0:
-        if mpirank == 0:
-            p.set_array(np.ravel(h['g'][:-1,:-1].T))
-            cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']) )
-            plt.draw()
-            plt.savefig('height'+str(solver.iteration)+'.png')
-            plt.pause(0.001)
-            #display.clear_output()
-            #display.display(plt.gcf())
+    if solver.iteration % 100 == 0:
+        # if mpirank == 0:
+        #     p.set_array(np.ravel(h['g'][:-1,:-1].T))
+        #     cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']) )
+        #     plt.draw()
+        #     plt.savefig('height'+str(solver.iteration)+'.png')
+        #     plt.pause(0.001)
         logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
 
 end_time = time.time()

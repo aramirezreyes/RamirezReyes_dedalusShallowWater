@@ -84,15 +84,17 @@ This version considers periodic boundaries by calling the ghosts routine with py
 
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
+#    print("Process "+str(mpirank)+": Entered heating routine")
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
         xx              = val_out
         yy              = centers_gathered_y[index_out]
         time_convecting = centers_gathered_times[index_out]
         #if time_convecting > t:
         #    print("I have futures ")
+#        print("Process "+str(mpirank)+": I replicated one center")
         centerandghosts = create_ghosts(xx,yy,R,Lx,Ly)
         for centerghosted in centerandghosts:
             xxx = centerghosted[0]
@@ -100,6 +102,7 @@ def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_tim
             if xxx > (xmax_local + R) or xxx < (xmin_local - R) or yyy < (ymin_local - R) or yyy > (ymax_local + R ):
                 continue
             else:
+                #print("Process "+str(mpirank)+": Heating around one center")
                 for index_in,val_in in np.ndenumerate(x):
                     distsq = (val_in-xxx)**2+(y[index_in]-yyy)**2
                     if distsq <= R2:

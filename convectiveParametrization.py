@@ -14,7 +14,7 @@ q0, tauc, R2, R are floats with the parameters for the convection scheme
 xmin_local, xmax_local, ymin_local, ymax_local are floats with the limits of the local portion of the domain
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
@@ -48,7 +48,7 @@ This version considers periodic boundaries by calling the ghosts routine with nu
 
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def heat_mpi3(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
@@ -121,7 +121,7 @@ Uses Lx, and Ly, global variables with the limits of the domain
 
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def create_ghosts(x,y,R,Lx,Ly):
     left_border = x < R
     right_border = x > (Lx - R)
@@ -168,7 +168,7 @@ Uses Lx, and Ly, global variables with the limits of the domain
 
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def create_ghosts2(x,y,R,Lx,Ly):
     left_border = x < R
     right_border = x > (Lx - R)
@@ -201,7 +201,7 @@ def create_ghosts2(x,y,R,Lx,Ly):
 Original version of heat_mpi, will probably die soon
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2):
     indices_out = np.nonzero( (conv_centers!=0.0) & ((t - conv_centers_times)<tauc))
     for ind in range(indices_out[1].shape[0]):
@@ -220,7 +220,7 @@ computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
 Fills the conv_centers and conv_centers times arrays to signal the convecting points and how long have they been convecting
 
 """
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
     for ind,val in np.ndenumerate(h):
@@ -250,7 +250,7 @@ q0, tauc, R2 are the parameters of the convection
 
 """
 
-@jit(nopython=True)
+@jit(nopython=True,cache=False)
 def heatingfunction(t,distsq,conv_center_time,q0,tauc,R2):
     """ This function must receive strictly floats """
     ##In RungeKutta sometimes the time evaluated is less than that in the previous timestep

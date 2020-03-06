@@ -224,16 +224,20 @@ Fills the conv_centers and conv_centers times arrays to signal the convecting po
 def computecentersandtimes(t,h,hc,tauc,conv_centers,conv_centers_times):
     """ This functions takes arrays """
     for ind,val in np.ndenumerate(h):
-        if val >= hc:
-            conv_centers[ind] = False
-            conv_centers_times[ind] = 0.0
-        else:
-            conv_centers[ind] = True
-            cct = conv_centers_times[ind]
-            if cct == 0.0 or ((t - cct) >= tauc) or (cct > t):
-                conv_centers_times[ind] = t
+        if conv_centers[ind]:
+            if ((t - conv_centers_times[ind]) < tauc):
+                continue
             else:
-                continue        
+                conv_centers[ind] = False
+                conv_centers_times[ind] = 0.0
+        elif not(conv_centers[ind]) and  (val < hc):
+            conv_centers[ind] = True
+            conv_centers_times[ind] = t
+            # cct = conv_centers_times[ind]
+            # if cct == 0.0 or ((t - cct) >= tauc) or (cct > t):
+            #     conv_centers_times[ind] = t
+            # else:
+            #    continue        
     return None
 
 """

@@ -5,37 +5,6 @@ import numpy as np
 heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
 
 Receives the positions of the centers of convection and fills the matrix Q with the convective heating terms.
-    
-Q is an array of the same shape as h
-x,y are arrays containing the coordinates of the portion of the domain that is local to this mpi process
-t is an scalar with the current time
-centers_gathered_x,centers_gathered_y and centers_gathered_times are arrays of the cordinates of the convecting points and the times at which they started convecting
-q0, tauc, R2, R are floats with the parameters for the convection scheme
-xmin_local, xmax_local, ymin_local, ymax_local are floats with the limits of the local portion of the domain
-"""
-
-@jit(nopython=True,cache=False)
-def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local):    
-#    for index_out,val_out in range(centers_gathered_x.shape[0]):
-    for index_out,val_out in np.ndenumerate(centers_gathered_x):
-        xx              = val_out
-        yy              = centers_gathered_y[index_out]
-        time_convecting = centers_gathered_times[index_out]
-        
-        if xx > (xmax_local + R) or xx < (xmin_local - R) or yy < (ymin_local - R) or yy > (ymax_local + R ):
-            continue
-        else:
-            for index_in,val_in in np.ndenumerate(x):
-                distsq = (val_in-xx)**2+(y[index_in]-yy)**2
-                if distsq < R2:
-                    Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
-    return None
-
-
-"""
-heat_mpi3(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
-
-Receives the positions of the centers of convection and fills the matrix Q with the convective heating terms.
 
 Q is an array of the same shape as h
 x,y are arrays containing the coordinates of the portion of the domain that is local to this mpi process
@@ -44,48 +13,12 @@ centers_gathered_x,centers_gathered_y and centers_gathered_times are arrays of t
 q0, tauc, R2, R are floats with the parameters for the convection scheme
 xmin_local, xmax_local, ymin_local, ymax_local are floats with the limits of the local portion of the domain
 
-This version considers periodic boundaries by calling the ghosts routine with numpy arrays
+This version considers periodic boundaries by calling the ghosts routine with python lists (preferred)
 
 """
 
 @jit(nopython=True,cache=False)
-def heat_mpi3(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
-#    for index_out,val_out in range(centers_gathered_x.shape[0]):
-    for index_out,val_out in np.ndenumerate(centers_gathered_x):
-        xx              = val_out
-        yy              = centers_gathered_y[index_out]
-        time_convecting = centers_gathered_times[index_out]
-        centerandghosts = create_ghosts2(xx,yy,R,Lx,Ly)
-        for ind,val in enumerate(centerandghosts[0]):
-            xxx = val
-            yyy = centerandghosts[1][ind]
-            if xxx > (xmax_local + R) or xxx < (xmin_local - R) or yyy < (ymin_local - R) or yyy > (ymax_local + R ):
-                continue
-            else:
-                for index_in,val_in in np.ndenumerate(x):
-                    distsq = (val_in-xxx)**2+(y[index_in]-yyy)**2
-                    if distsq <= R2:
-                        Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
-    return None
-
-"""
-heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
-
-Receives the positions of the centers of convection and fills the matrix Q with the convective heating terms.
-
-Q is an array of the same shape as h
-x,y are arrays containing the coordinates of the portion of the domain that is local to this mpi process
-t is an scalar with the current time
-centers_gathered_x,centers_gathered_y and centers_gathered_times are arrays of the cordinates of the convecting points and the times at which they started convecting
-q0, tauc, R2, R are floats with the parameters for the convection scheme
-xmin_local, xmax_local, ymin_local, ymax_local are floats with the limits of the local portion of the domain
-
-This version considers periodic boundaries by calling the ghosts routine with python lists
-
-"""
-
-@jit(nopython=True,cache=False)
-def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
+def heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
 #    for index_out,val_out in range(centers_gathered_x.shape[0]):
 #    print("Process "+str(mpirank)+": Entered heating routine")
     for index_out,val_out in np.ndenumerate(centers_gathered_x):
@@ -108,6 +41,44 @@ def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_tim
                     if distsq <= R2:
                         Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
     return None
+
+
+"""
+heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
+
+Receives the positions of the centers of convection and fills the matrix Q with the convective heating terms.
+
+Q is an array of the same shape as h
+x,y are arrays containing the coordinates of the portion of the domain that is local to this mpi process
+t is an scalar with the current time
+centers_gathered_x,centers_gathered_y and centers_gathered_times are arrays of the cordinates of the convecting points and the times at which they started convecting
+q0, tauc, R2, R are floats with the parameters for the convection scheme
+xmin_local, xmax_local, ymin_local, ymax_local are floats with the limits of the local portion of the domain
+
+This version considers periodic boundaries by calling the ghosts routine with numpy arrays
+
+"""
+
+@jit(nopython=True,cache=False)
+def heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly):    
+#    for index_out,val_out in range(centers_gathered_x.shape[0]):
+    for index_out,val_out in np.ndenumerate(centers_gathered_x):
+        xx              = val_out
+        yy              = centers_gathered_y[index_out]
+        time_convecting = centers_gathered_times[index_out]
+        centerandghosts = create_ghosts2(xx,yy,R,Lx,Ly)
+        for ind,val in enumerate(centerandghosts[0]):
+            xxx = val
+            yyy = centerandghosts[1][ind]
+            if xxx > (xmax_local + R) or xxx < (xmin_local - R) or yyy < (ymin_local - R) or yyy > (ymax_local + R ):
+                continue
+            else:
+                for index_in,val_in in np.ndenumerate(x):
+                    distsq = (val_in-xxx)**2+(y[index_in]-yyy)**2
+                    if distsq <= R2:
+                        Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
+    return None
+
 
 """
 create_ghosts(x,y,R)

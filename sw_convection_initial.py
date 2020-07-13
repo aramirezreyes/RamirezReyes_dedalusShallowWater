@@ -25,39 +25,30 @@ mpirank = comm.Get_rank()
 mpirankr = (mpirank - 1)%mpisize
 mpirankl = (mpirank + 1)%mpisize
 
-#if mpirank == 0:
-#    import matplotlib.pyplot as plt
-
-
-
-
-
 #Domain specs
-Lx                   = (2.0e5)
-nx                   = (200)
-Ly                   = (2.0e5)
-ny                   = (200)
+Lx                   = (1.0e6)
+nx                   = (600)
+Ly                   = (1.0e6)
+ny                   = (600)
 # Create bases and domain
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
 y_basis              = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
 domain               = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
-#Pretty sure that what you want to do is get the local shape of the grid on each process at the beginning of the run:
+
 local_shape = domain.dist.grid_layout.local_shape(scales=1.5)
-#Then create NumPy arrays on each processor locally that do what you're interested in :
 conv_centers = np.zeros(local_shape, dtype=bool)
 conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 2.0e4 #I had 5
-hyperdiff_power      = 2.0 #not used with the hyperdiffusion
+diff_coef            = 8.0e4 #I had 5
 ## Physics
 gravity              = 10.0
 #gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
-heating_amplitude    = 3.0e14 #originally 9 for heating, -8 for cooling
-radiative_cooling    = (1.12/3.0)*1.0e-8
+heating_amplitude    = 1.0e10 #originally 9 for heating, -8 for cooling
+radiative_cooling    = (1.12/3.0)*4*1.0e-3
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
 convective_radius    = 30000.0
@@ -66,20 +57,16 @@ damping_timescale = 2.0*86400.0
 relaxation_height = 39.0
 
 exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
-output_path = '/Users/arreyes/Documents/Research/Dedalus_experiments/ShallowWatersScripts/'
+output_path = '/Users/arreyes/Documents/Research/DedalusExperiments/DedalusOutput/'
 #output_path = '/global/scratch/argelreyes/'
 
-k                    = 2*np.pi/500 #is wavelength = 1km
+k                    = 2*np.pi/1000 #is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
-H                    = 44.0#/(gravity*k**2)
+H                    = 45.0#/(gravity*k**2)
 omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
-# #Initialize fields
-# #conv_centers['g']         = 0.0
-# #conv_centers_times['g']   = 0.0
-
 
 # # *****USER-CFL***** #
-dt_max               = (2*np.pi/omega) /19
+dt_max               = (2*np.pi/omega)# /19
 CFLfac               = 0.5
 start_dt             = dt_max
 
@@ -140,15 +127,6 @@ def ConvHeating(*args):
         centers_gathered_times = np.hstack([cll[2],centers_local_times,clr[2]])
 
         
-        # centers_gathered_x = np.array(comm.allgather(centers_local_x))[[mpirankl,mpirank,mpirankr]]
-        # centers_gathered_x = np.hstack(centers_gathered_x)
-        
-        # centers_gathered_y = np.array(comm.allgather(centers_local_y))[[mpirankl,mpirank,mpirankr]]
-        # centers_gathered_y  = np.hstack(centers_gathered_y)
-        
-        # centers_gathered_times = np.array(comm.allgather(centers_local_times))[[mpirankl,mpirank,mpirankr]]
-        # centers_gathered_times = np.hstack(centers_gathered_times)
-
         # print("")
          
      #   centers_gathered_y     = np.hstack(comm.allgather(centers_local_y)[[mpirankl,mpirank,mpirankr]] )
@@ -161,7 +139,7 @@ def ConvHeating(*args):
         #print("My rank is: ",mpirank," My ts are: ",centers_gathered_times)
          #print("Rank: ",rank,"I have futures in: ",np.nonzero(centers_gathered_times > t))
         #print("Process "+str(mpirank)+": Starting heating")
-        heat_mpi2(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
+        heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local,Lx,Ly)
         #print("Process "+str(mpirank)+": Finished heating")
     ##### Serial version #######
     #heat(Q,x,y,t,conv_centers,conv_centers_times,q0,tauc,R2)
@@ -185,7 +163,6 @@ problem.parameters['Lenx']            = Lx
 problem.parameters['Leny']            = Ly
 problem.parameters['g']             = gravity
 problem.parameters['nu']            = diff_coef
-problem.parameters['hs']            = hyperdiff_power
 problem.parameters['f']             = coriolis_parameter
 problem.parameters['q0']            = heating_amplitude
 problem.parameters['tauc']          = convective_timescale
@@ -235,19 +212,15 @@ h = solver.state['h']
 hx = solver.state['hx']
 hy = solver.state['hy']
 
-amp    = 4.0
+amp    = 10.0
+np.random.seed(mpirank)
 u['g'] = 0.0
 v['g'] = 0.0
+#h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
 #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
-h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
-#print(np.shape(h['g'].data))
+#h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
 nxlocal = h['g'].shape[0]
 nylocal = h['g'].shape[1]
-
-
-np.random.seed(mpirank)
-#h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
-#h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
 
 u.differentiate('x',out=ux)
 v.differentiate('y',out=vy)
@@ -258,7 +231,7 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 15*86400
+solver.stop_sim_time = 25*86400
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max
@@ -278,22 +251,8 @@ analysis.add_task('u',layout='g')
 analysis.add_task('v',layout='g')
 analysis.add_task('y',layout='g')
 analysis.add_task('x',layout='g')
-snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=86400, max_writes=50, mode='overwrite')
-snapshots.add_system(solver.state)
 solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
-
-# if mpirank == 0:
-#     x = domain.grid(0,scales=domain.dealias)
-#     y = domain.grid(1,scales=domain.dealias)
-#     xm, ym = np.meshgrid(x,y)
-#     fig, axis = plt.subplots(figsize=(10,5))
-#     p = axis.pcolormesh(xm,ym,h['g'].T, cmap='RdBu_r');
-#     axis.set_xlim([0,2.0e5])
-#     axis.set_ylim([0.,2.0e5])
-#     cb = fig.colorbar(p,ax=axis)
-#     cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']))
-#     plt.ion()
 
 logger.info('Starting loop')
 start_time = time.time()
@@ -301,13 +260,7 @@ while solver.ok:
     dt = cfl.compute_dt()
     solver.step(dt,trim=False)
     if solver.iteration % 100 == 0:
-        # if mpirank == 0:
-        #     p.set_array(np.ravel(h['g'][:-1,:-1].T))
-        #     cb.set_clim(vmin=np.min(h['g']), vmax=np.max(h['g']) )
-        #     plt.draw()
-        #     plt.savefig('height'+str(solver.iteration)+'.png')
-        #     plt.pause(0.001)
-        logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
+        logger.info('Iteration: %i, Time: %.1f, dt: %e' %(solver.iteration, solver.sim_time/86400, dt))
 
 end_time = time.time()
 p.set_array(np.ravel(h['g'][:-1,:-1].T))

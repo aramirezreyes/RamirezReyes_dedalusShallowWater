@@ -28,7 +28,7 @@ conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 5.0e4 #Works with nu**2 lapl(lapl
+diff_coef            = 8.0e4 #Works with nu**2 lapl(lapl
 #diff_coef            = 1.0e1 #Works with nu**2 lapl(lapl
 #diff_coef = 1.0e3   #works with nu*nu lapl lapl
 ## Physics

@@ -11,7 +11,7 @@ from dedalus.extras import flow_tools
 import time
 from mpi4py import MPI
 import logging
-from convectiveParametrization import computecentersandtimes, heat_mpi2
+from convectiveParametrization import computecentersandtimes, heat_mpi
 root = logging.root
 for h in root.handlers:
     h.setLevel("INFO")

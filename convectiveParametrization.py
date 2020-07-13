@@ -1,6 +1,30 @@
 from numba import jit
 import numpy as np
 
+
+
+@jit(nopython=True,cache=False)
+def heat_1d_serial(Q,x,t,centers_x,centers_times,q0,tauc,R2,R,xmin,xmax,Lx):    
+#    for index_out,val_out in range(centers_gathered_x.shape[0]):
+#    print("Process "+str(mpirank)+": Entered heating routine")
+    for index_out,val_out in np.ndenumerate(centers_x):
+        xx              = val_out
+        time_convecting = centers_times[index_out]
+        centerandghosts = create_ghosts_1d_serial(xx,R,Lx)
+        for centerghosted in centerandghosts:
+            xxx = centerghosted
+            #print(centerghosted)
+            if xxx > (xmax + R) or xxx < (xmin - R):
+                continue
+            else:
+                #print("Process "+str(mpirank)+": Heating around one center")
+                for index_in,val_in in np.ndenumerate(x):
+                    distsq = (val_in-xxx)**2
+                    if distsq <= R2:
+                        Q[index_in] = Q[index_in] + heatingfunction(t,distsq,time_convecting,q0,tauc,R2)    
+    return None
+
+
 """
 heat_mpi(Q,x,y,t,centers_gathered_x,centers_gathered_y,centers_gathered_times,q0,tauc,R2,R,xmin_local,xmax_local,ymin_local,ymax_local)
 
@@ -167,6 +191,33 @@ def create_ghosts2(x,y,R,Lx,Ly):
         centers = np.array([[x],[y]])
         
     return centers
+
+
+"""
+create_ghosts_1d_serial(x,y,R)
+Receives the coordinates of the convective centers and radius of convection. 
+Returns a numpy.array with the same center and, if the center is near a border, the corresponding centers in the other side of the domain to consider periodic boundary conditions.
+
+x are floats with the position of the convecting point
+R is the radius of convection
+
+Uses Lx, global variables with the limits of the domain
+
+"""
+
+@jit(nopython=True,cache=False)
+def create_ghosts_1d_serial(x,R,Lx):
+    left_border = x < R
+    right_border = x > (Lx - R)
+    if left_border:
+        centers = [ x, x+Lx  ]
+    elif right_border:
+        centers = [ x, x-Lx  ]
+    else:
+        centers = [x]
+        
+    return centers
+
 
 """
 Original version of heat_mpi, will probably die soon

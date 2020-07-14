@@ -28,7 +28,8 @@ conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 8.0e4 #Works with nu**2 lapl(lapl
+#diff_coef            = 8.0e4 #Works with nu**2 lapl(lapl
+diff_coef             = 1e11
 #diff_coef            = 1.0e1 #Works with nu**2 lapl(lapl
 #diff_coef = 1.0e3   #works with nu*nu lapl lapl
 ## Physics
@@ -39,10 +40,10 @@ coriolis_parameter   = 5e-4;
 heating_amplitude    = 1.0e10 #originally 9 for heating, -8 for cooling
 radiative_cooling    = (1.12/3.0)*4*1.0e-3
 #radiative_cooling    = (1.12/3)*1e-4
-convective_timescale = 28800.0
-convective_radius    = 30000.0
+convective_timescale = 3600.0
+convective_radius    = 6000.0
 critical_geopotential = 40.0
-damping_timescale = 2*86400.0
+damping_timescale = 0.5*86400.0
 relaxation_height = 39.0
 
 exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
@@ -55,7 +56,7 @@ k                    = 2*np.pi/1000 #is wavelength = 1km
 H                    = 44.0#/(gravity*k**2)
 omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
 # # *****USER-CFL***** #
-dt_max               = (2*np.pi/omega) /1
+dt_max               = (2*np.pi/omega)
 CFLfac               = 0.5
 start_dt             = dt_max
 
@@ -117,8 +118,9 @@ problem.parameters['h0']            = relaxation_height
 #problem.add_equation("dt(u) + g*dx(h) - f*v +(nu**2)*lapl(lapl(u)) +u/taud = - u*ux ") #check it need changing for dx(h)
 #problem.add_equation("dt(h)   +(nu**2)*lapl(lapl(h))   +h/taud  =- u*hx - h*ux + Q(t,x,h,q0,tauc,R,hc,Lenx) -r +h0/taud")
 #### No coriolis
-problem.add_equation("dt(u) + g*dx(h) +(nu**2)*lapl(lapl(u)) =  - u*ux  -u/taud") 
-problem.add_equation("dt(h) + h/taud  +(nu**2)*lapl(lapl(h)) = - u*hx - h*ux + Q(t,x,h,q0,tauc,R,hc,Lenx) +h0/taud -r")
+problem.add_equation("dt(u) + g*dx(h) +(nu)*lapl(lapl(u)) =  - u*ux  -u/taud") 
+problem.add_equation("dt(h) + h/taud  +(nu)*lapl(lapl(h)) = - u*hx - h*ux + Q(t,x,h,q0,tauc,R,hc,Lenx) +h0/taud -r")
+
 #1first order diffusion
 #problem.add_equation("dt(u) + g*dx(h) -(nu**2)*(lapl(u)) =  - u*ux  -u/taud") 
 #problem.add_equation("dt(h) + h/taud  -(nu**2)*(lapl(h)) = - u*hx - h*ux + Q(t,x,h,q0,tauc,R,hc,Lenx) +h0/taud -r")
@@ -129,6 +131,7 @@ problem.add_equation("dt(h) + h/taud  +(nu**2)*lapl(lapl(h)) = - u*hx - h*ux + Q
 #problem.add_equation("dt(h)=1")
 problem.add_equation("ux - dx(u) = 0")
 problem.add_equation("hx - dx(h) = 0")
+
 
 
 ts = de.timesteppers.RK443
@@ -160,7 +163,7 @@ h.differentiate('x',out=hx)
 
 
 
-solver.stop_sim_time = 50*86400
+solver.stop_sim_time = 1*86400
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max
@@ -168,14 +171,13 @@ initial_dt = dt_max
 cfl = flow_tools.CFL(solver, initial_dt=initial_dt, cadence=10, safety=CFLfac,
                      max_change=1.5, min_change=0.5, max_dt=dt_max, threshold=0.5)
 cfl.add_velocities(('u'))
-
+cfl.add_nonconservative_diffusivity(('nu'))
 
 
 analysis = solver.evaluator.add_file_handler(output_path+exp_name, sim_dt=3600, max_writes=300)
 #analysis = solver.evaluator.add_file_handler(exp_name, iter=1, max_writes=300)
 analysis.add_task('h',layout='g')
 analysis.add_task('u',layout='g')
-#analysis.add_task('h',layout='c')
 #analysis.add_task('u',layout='c')
 analysis.add_task('x',layout='g')
 solver.evaluator.vars['Lx'] = Lx
@@ -208,46 +210,51 @@ axis[0,1].set_title("Geopotential height (spectrum)")
 axis[1,1].set_title("Velocity")
 axis[1,0].set_title("Is it convecting?")
 fig.tight_layout()
-axis[0,0].set_ylim((0,150))
+axis[0,0].set_ylim((35,250))
 plt.draw()
 plt.pause(0.1)
 #input("Press Enter to continue...")
 
 logger.info('Starting loop')
-start_time = time.time()
-while solver.ok:
-    dt = cfl.compute_dt()
-    solver.step(dt,trim=False)
-    if solver.iteration % 1000 == 0:        
-        logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
-    if solver.iteration % 40 == 0:
-#        input("Press Enter to continue...")
-        fig.suptitle(f'Shallow Waters. Day: {solver.sim_time/86400:.1f}',y=0.98)
-        p1.set_ydata(np.copy(h['g']))
-        axis[0,0].hlines(y =  critical_geopotential,xmin=0,xmax=Lx, color ='r') 
-        p2.set_ydata(np.copy(h['c'][1:]))
-        p4.set_ydata(u['g'])
-        [bar.set_height(conv_centers[i]) for i,bar in enumerate(p3)]
-#        axis[0,0].set_ylim(bottom=0)
-        axis[0,0].relim()
-        axis[0,0].autoscale_view()
-        plt.draw()
-        plt.pause(0.001)
-        axis[0,1].relim()
-        axis[0,1].autoscale_view()
-        
-        #axis[0,1].set_ylim(bottom=-5)
-        axis[1,1].relim()
-        axis[1,1].autoscale_view()
-        plt.draw()
-        plt.pause(0.0001)
-       # h['g']
+start_run_time = time.time()
+try:
+    while solver.ok:
+        dt = cfl.compute_dt()
+        solver.step(dt,trim=False)
+        if solver.iteration % 1000 == 0:        
+            logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
+        if (solver.iteration % 10 == 0) and (solver.sim_time % (15*86400) == 0): 
+            #        input("Press Enter to continue...")
+            fig.suptitle(f'Shallow Waters. Day: {solver.sim_time/86400:.1f}',y=0.98)
+            p1.set_ydata(np.copy(h['g']))
+            axis[0,0].hlines(y =  critical_geopotential,xmin=0,xmax=Lx, color ='r') 
+            p2.set_ydata(h['c'][1:])
+            p4.set_ydata(u['g'])
+            [bar.set_height(conv_centers[i]) for i,bar in enumerate(p3)]
+            #        axis[0,0].set_ylim(bottom=0)
+            axis[0,0].relim()
+            axis[0,0].autoscale_view()
+            plt.draw()
+            plt.pause(0.001)
+            axis[0,1].relim()
+            axis[0,1].autoscale_view()
+            
+            #axis[0,1].set_ylim(bottom=-5)
+            axis[1,1].relim()
+            axis[1,1].autoscale_view()
+            plt.draw()
+            plt.pause(0.0001)
+except:
+    logger.error('Exception raised, triggering end of main loop.')
+    raise
+finally:
+    end_run_time = time.time()
+    logger.info('Iterations: %i' %solver.iteration)
+    logger.info('Sim end time: %f' %solver.sim_time)
+    logger.info('Run time: %.2f sec' %(end_run_time-start_run_time))
+    logger.info('Run time: %f cpu-hr' %((end_run_time-start_run_time)/60/60*domain.dist.comm_cart.size))
+    logger.info('Output was stored in %s' %(output_path+exp_name))
+    plt.show()
 
-plt.show()
-end_time = time.time()
 
-
-# Print statistics
-logger.info('Run time: %f' %(end_time-start_time))
-logger.info('Iterations: %i' %solver.iteration)
 

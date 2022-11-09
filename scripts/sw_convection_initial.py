@@ -26,10 +26,10 @@ mpirankr = (mpirank - 1)%mpisize
 mpirankl = (mpirank + 1)%mpisize
 
 #Domain specs
-Lx                   = (1.0e6)
-nx                   = (600)
+Lx                   = (1.5e6)
+nx                   = (250)
 Ly                   = (1.0e6)
-ny                   = (600)
+ny                   = (250)
 # Create bases and domain
 x_basis              = de.Fourier('x', nx, interval =(0, Lx), dealias=3./2)
 y_basis              = de.Fourier('y', ny, interval=(0, Ly), dealias=3./2)
@@ -41,28 +41,27 @@ conv_centers_times = np.zeros(local_shape, dtype=np.float64)
 
 #Set the parameters of the problem
 ##Numerics
-diff_coef            = 8.0e4 #I had 5
+diff_coef            = 1.0e5 #I had 5
 ## Physics
-gravity              = 10.0
-#gravity = 0.0
+gravity              = 9.8#gravity = 0.0
 coriolis_parameter   = 5e-4;
 ### Convective Params
-heating_amplitude    = 1.0e10 #originally 9 for heating, -8 for cooling
-radiative_cooling    = (1.12/3.0)*4*1.0e-3
+heating_amplitude    = 1.0e9 #originally 9 for heating, -8 for cooling
+radiative_cooling    = (1.12/3.0)*1.0e-8
 #radiative_cooling    = (1.12/3)*1e-4
 convective_timescale = 28800.0
 convective_radius    = 30000.0
 critical_geopotential = 40.0
-damping_timescale = 2.0*86400.0
+damping_timescale = 8.0*86400.0
 relaxation_height = 39.0
 
 exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
-output_path = '/Users/arreyes/Documents/Research/DedalusExperiments/DedalusOutput/'
-#output_path = '/global/scratch/argelreyes/'
+#output_path = '/Users/arreyes/Documents/Research/DedalusExperiments/DedalusOutput/'
+output_path = '.'
 
 k                    = 2*np.pi/1000 #is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
-H                    = 45.0#/(gravity*k**2)
+H                    = 39.0#/(gravity*k**2)
 omega                = np.sqrt(gravity*H*k**2) #wavelength to be resolved
 
 # # *****USER-CFL***** #
@@ -172,13 +171,14 @@ problem.parameters['r']             = radiative_cooling
 problem.parameters['taud']          = damping_timescale
 problem.parameters['h0']            = relaxation_height
 ### Full physics
-problem.add_equation("dt(u) + g*dx(h) - f*v +(nu**2)*lapl(lapl(u)) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
-problem.add_equation("dt(v) + g*dy(h) + f*u   +(nu**2)*lapl(lapl(v)) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
-problem.add_equation("dt(h)   +(nu**2)*lapl(lapl(h))   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
+#problem.add_equation("dt(u) + g*dx(h) - f*v -(nu)*lapl(u) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
+#problem.add_equation("dt(v) + g*dy(h) + f*u   -(nu)*lapl(v) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
+#problem.add_equation("dt(h)   -(nu)*lapl(h)   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
 #### No coriolis
-#problem.add_equation("dt(u) + g*dx(h)  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
-#problem.add_equation("dt(v) + g*dy(h)  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)
-#problem.add_equation("dt(h)  = (diff(h))   - u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -(h-h0)/taud -r")
+problem.add_equation("dt(u) + g*dx(h) - f*v -(nu)*lapl(u) +u/taud = - u*ux - v*uy ") #check it need changing for dx(h)
+problem.add_equation("dt(v) + g*dy(h) + f*u   -(nu)*lapl(v) +v/taud = - v*vy - u*vx") #check it need changing for dx(h)
+problem.add_equation("dt(h)   -(nu)*lapl(h)   +h/taud  =- u*hx - h*ux - h*vy - v*hy + Q(t,x,y,h,q0,tauc,R,hc,Lenx,Leny) -r +h0/taud")
+
 #### No coriolis, no heating
 #problem.add_equation("dt(u) + g*dx(h)  = (diff(u))  - u*ux - v*uy  -u/taud") #check it need changing for dx(h)
 #problem.add_equation("dt(v) + g*dy(h)  = (diff(v))  - v*vy - u*vx -v/taud") #check it need changing for dx(h)
@@ -219,8 +219,17 @@ v['g'] = 0.0
 #h['g'] = H - amp*np.random.rand(nxlocal,nylocal)
 #h['g'] = H - amp*np.sin(np.pi*x/Lx)*np.sin(np.pi*y/Ly)
 #h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 + (y-0.5*Ly)**2/(0.1*Ly)**2 ))
+np.random.seed(5)
+phase  =  Lx*np.random.rand()
+wavenum = np.random.randint(1, 10)
+#print(np.shape(h['g'].data))
 nxlocal = h['g'].shape[0]
 nylocal = h['g'].shape[1]
+h['g'] = H + amp*np.random.rand(nxlocal, nylocal)
+#h['g'][int(nxlocal/2),int(nylocal/2)] = 30.0
+
+#h['g'] = H - amp*np.sin(wavenum*np.pi*x/Lx + phase)*np.sin(wavenum*np.pi*y/Ly+phase)+np.random.rand(nxlocal,nylocal)
+#h['g'] = H - amp*np.exp(- ((x-0.5*Lx)**2/(0.1*Lx)**2 ))
 
 u.differentiate('x',out=ux)
 v.differentiate('y',out=vy)
@@ -231,7 +240,7 @@ h.differentiate('y',out=hy)
 
 
 
-solver.stop_sim_time = 25*86400
+solver.stop_sim_time = 20*86400
 solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 initial_dt = dt_max
@@ -255,17 +264,24 @@ solver.evaluator.vars['Lx'] = Lx
 solver.evaluator.vars['Ly'] = Ly
 
 logger.info('Starting loop')
-start_time = time.time()
-while solver.ok:
-    dt = cfl.compute_dt()
-    solver.step(dt,trim=False)
-    if solver.iteration % 100 == 0:
-        logger.info('Iteration: %i, Time: %.1f, dt: %e' %(solver.iteration, solver.sim_time/86400, dt))
+start_run_time = time.time()
+try:
+    while solver.ok:
+        dt = cfl.compute_dt()
+        solver.step(dt,trim=False)
+        if solver.iteration % 1 == 0:
+            logger.info('Iteration: %i, Time: %.1f, dt: %e' %(solver.iteration, solver.sim_time/86400, dt))
+except:
+    logger.error('Exception raised, triggering end of main loop.')
+    raise
+finally:
+    end_run_time = time.time()
+    logger.info('Iterations: %i' %solver.iteration)
+    logger.info('Sim end time: %f' %solver.sim_time)
+    logger.info('Run time: %.2f sec' %(end_run_time-start_run_time))
+    logger.info('Run time: %f cpu-hr' %((end_run_time-start_run_time)/60/60*domain.dist.comm_cart.size))
+    logger.info('Output was stored in %s' %(output_path+exp_name))
 
-end_time = time.time()
-p.set_array(np.ravel(h['g'][:-1,:-1].T))
 
-# Print statistics
-logger.info('Run time: %f' %(end_time-start_time))
-logger.info('Iterations: %i' %solver.iteration)
+
 

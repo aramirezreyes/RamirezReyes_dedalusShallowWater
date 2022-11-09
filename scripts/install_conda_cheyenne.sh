@@ -116,18 +116,18 @@ else
 fi
 
 echo "Updating conda-forge pip, setuptools, cython"
-conda install "${CARGS[@]}" -c conda-forge pip setuptools cython
+mamba install "${CARGS[@]}" -c conda-forge pip setuptools cython
 
 case "${BLAS}" in
 "openblas")
     echo "Installing conda-forge openblas, numpy, scipy"
-    conda install "${CARGS[@]}" -c conda-forge "blas=*=openblas" numpy scipy
+    mamba install "${CARGS[@]}" -c conda-forge "blas=*=openblas" numpy scipy
     # Dynamically link FFTW
     export FFTW_STATIC=0
     ;;
 "mkl")
     echo "Installing conda-forge mkl, numpy, scipy"
-    conda install "${CARGS[@]}" -c conda-forge "blas=*=mkl" numpy scipy
+    mamba install "${CARGS[@]}" -c conda-forge "blas=*=mkl" numpy scipy
     # Statically link FFTW to avoid MKL symbols
     export FFTW_STATIC=1
     ;;
@@ -140,7 +140,7 @@ esac
 if [ ${INSTALL_MPI} -eq 1 ]
 then
     echo "Installing conda-forge openmpi, mpi4py"
-    conda install "${CARGS[@]}" -c conda-forge openmpi==3.1.0 mpi4py
+    mamba install "${CARGS[@]}" -c conda-forge openmpi==3.1.0 mpi4py
 else
     echo "Not installing openmpi"
     echo "Installing mpi4py with pip"
@@ -154,7 +154,7 @@ if [ ${INSTALL_FFTW} -eq 1 ]
 then
     echo "Installing cryoem fftw-mpi"
     # no-deps to avoid pulling cryoem openmpi
-    conda install "${CARGS[@]}" -c cryoem --no-deps fftw-mpi
+    mamba install "${CARGS[@]}" -c cryoem --no-deps fftw-mpi
 else
     echo "Not installing fftw"
 fi
@@ -162,7 +162,7 @@ fi
 if [ ${INSTALL_HDF5} -eq 1 ]
 then
     echo "Installing conda-forge hdf5, h5py"
-    conda install "${CARGS[@]}" -c conda-forge hdf5 h5py
+    mamba install "${CARGS[@]}" -c conda-forge hdf5 h5py
 else
     echo "Not installing hdf5"
     echo "Installing h5py with pip"
@@ -171,11 +171,15 @@ else
     python3 -m pip install --no-cache --no-binary=h5py h5py
 fi
 
-echo "Installing conda-forge docopt, matplotlib"
-conda install "${CARGS[@]}" -c conda-forge docopt matplotlib
+echo "Installing  docopt, matplotlib"
+mamba install "${CARGS[@]}" -c conda-forge docopt matplotlib
 echo "Installing numba"
-conda install numba
-
+mamba install -c conda-forge numba
+echo "Installing xarray"
+mamba install -c conda-forge xarray
+echo "Installing and adding an ipykernel"
+mamba install -c conda-forge ipykernel
+python -m ipykernel install --user --name=dedalus
 echo "Installing dedalus with pip"
 # no-cache to avoid wheels from previous pip installs
 python3 -m pip install --no-cache dedalus

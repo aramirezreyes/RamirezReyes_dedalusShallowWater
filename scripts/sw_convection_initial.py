@@ -4,9 +4,7 @@ import os
 import sys
 base_dir = os.path.realpath(os.path.dirname(__file__))+"/../"
 sys.path.insert(0,base_dir+"src/")
-print(base_dir)
-from numba import jit
-from numba import vectorize, float64
+from numba import jit, vectorize, float64
 import numpy as np
 import itertools
 import h5py
@@ -62,7 +60,7 @@ relaxation_height = 39.0
 
 exp_name = 'f'+ format(coriolis_parameter,"1.0e")+'_q'+format(heating_amplitude,"1.0e")+'_r'+str(int(convective_radius/1000))+'_hc'+str(int(relaxation_height))
 #output_path = '/Users/arreyes/Documents/Research/DedalusExperiments/DedalusOutput/'
-output_path = base_dir + '/data/'
+output_path = base_dir + 'data/'
 
 k                    = 2*np.pi/1000 #is wavelength = 1km
 #k                    = 2.0*np.pi/10.0
@@ -275,7 +273,7 @@ try:
         dt = cfl.compute_dt()
         solver.step(dt,trim=False)
         if solver.iteration % 1 == 0:
-            logger.info('Iteration: %i, Time: %.1f, dt: %e' %(solver.iteration, solver.sim_time/86400, dt))
+            logger.info('Iteration: %i, Time: %.1f days, dt: %e' %(solver.iteration, solver.sim_time/86400, dt))
 except:
     logger.error('Exception raised, triggering end of main loop.')
     raise

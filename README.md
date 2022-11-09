@@ -9,11 +9,13 @@ Nevertheless it should be possible to make it work.
 # To instal in Cheyenne
 
 It should be as easy as loading the following modules:
-
-module load fftwmpi 
+module load conda
 module load openmpi
+module load fftw-mpi 
 module unload netcdf
 module load hdf5
+
+module activate base
 
 And then running the `script scripts/install_conda_cheyenne.sh`. 
 
